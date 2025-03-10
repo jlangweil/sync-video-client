@@ -35,6 +35,13 @@
   
   .syncing {
     color: #e67e22;
+    animation: pulse 1s infinite;
+  }
+  
+  @keyframes pulse {
+    0% { opacity: 0.7; }
+    50% { opacity: 1; }
+    100% { opacity: 0.7; }
   }
   
   .synced {
@@ -59,21 +66,61 @@
     position: relative;
   }
   
-  .video-container video {
+  .video-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .video-wrapper video {
     width: 100%;
     height: 100%;
     max-height: calc(100% - 50px);
     object-fit: contain;
+    transition: object-fit 0.3s ease;
   }
   
-  /* Viewer-specific styles */
+  /* Update viewer video styles to allow certain interactions */
   .viewer-video {
-    pointer-events: none; /* Prevent any interaction with the video */
+    pointer-events: auto !important; /* Allow interactions like resize */
   }
   
-  .viewer-message {
+  /* Custom controls for viewers */
+  .viewer-controls {
     position: absolute;
     bottom: 70px;
+    right: 10px;
+    z-index: 20;
+    display: flex;
+    gap: 8px;
+  }
+  
+  .control-button {
+    background-color: rgba(0, 0, 0, 0.7);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+  
+  .control-button:hover {
+    background-color: rgba(0, 0, 0, 0.9);
+  }
+  
+  .fullscreen-button:hover {
+    background-color: rgba(0, 0, 0, 0.9);
+  }
+  
+  /* Update the viewer message position */
+  .viewer-message {
+    position: absolute;
+    bottom: 10px;
     left: 0;
     right: 0;
     text-align: center;

@@ -26,10 +26,17 @@ function Room() {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [copySuccess, setCopySuccess] = useState('');
+  const [videoFit, setVideoFit] = useState('contain'); // 'contain' or 'cover'
+  
+  // Flag to prevent event loop when receiving remote updates
+  const [processingRemoteUpdate, setProcessingRemoteUpdate] = useState(false);
   
   const videoRef = useRef(null);
   const socketRef = useRef(null);
   const chatContainerRef = useRef(null);
+  
+  // Use a ref to track last sent state to avoid unnecessary rerenders
+  const lastSentState = useRef(null);
   
   // Handle sync status
   const [isSyncing, setIsSyncing] = useState(false);
@@ -88,7 +95,8 @@ function Room() {
       // Join room after successful connection
       socketRef.current.emit('joinRoom', {
         roomId,
-        username: storedUsername
+        username: storedUsername,
+        isHost: storedIsHost
       });
       
       // If this user is the host and has a video URL, share it with the room after a delay
@@ -125,6 +133,17 @@ function Room() {
               roomId,
               videoUrl
             });
+            
+            // Also send current playback state
+            if (videoRef.current) {
+              socketRef.current.emit('videoStateChange', {
+                roomId,
+                videoState: {
+                  isPlaying: !videoRef.current.paused,
+                  currentTime: videoRef.current.currentTime
+                }
+              });
+            }
           }, 1000);
         }
       }
@@ -136,17 +155,29 @@ function Room() {
       addSystemMessage(`${data.username} has left the room`);
     });
     
+    // Handle system messages
+    socketRef.current.on('systemMessage', (data) => {
+      addSystemMessage(data.text);
+    });
+    
     // Handle video state updates from server
     socketRef.current.on('videoStateUpdate', (videoState) => {
       if (videoRef.current) {
         console.log('Received video state update:', videoState);
         
-        // Set video time
-        if (Math.abs(videoRef.current.currentTime - videoState.currentTime) > 0.5) {
+        // Set this flag to prevent triggering our own events while updating
+        setProcessingRemoteUpdate(true);
+        
+        // For non-hosts, always follow the host's state
+        // For hosts, only apply if it wasn't our own update
+        const shouldUpdateTime = !isHost || 
+          Math.abs(videoRef.current.currentTime - videoState.currentTime) > 2.0;
+        
+        if (shouldUpdateTime) {
           videoRef.current.currentTime = videoState.currentTime;
         }
         
-        // Set play/pause state
+        // Set play/pause state (for both host and viewers)
         if (videoState.isPlaying && videoRef.current.paused) {
           videoRef.current.play()
             .catch(err => console.error('Error playing video:', err));
@@ -161,6 +192,12 @@ function Room() {
         setTimeout(() => {
           setIsSyncing(false);
         }, 2000);
+        
+        // Clear the processing flag after a short delay
+        // This prevents event handlers from firing during the update
+        setTimeout(() => {
+          setProcessingRemoteUpdate(false);
+        }, 500);
       } else {
         console.log('Received video state update but video element not ready');
       }
@@ -185,6 +222,118 @@ function Room() {
     };
   }, [roomId, navigate]);
   
+  // Add event listeners to intercept unwanted control attempts for viewers
+  useEffect(() => {
+    if (!isHost && videoRef.current) {
+      // Function to intercept and prevent playback control
+      const preventPlaybackControl = (e) => {
+        // Allow these events to propagate to enable fullscreen and other features
+        const allowedEvents = ['mousemove', 'mouseenter', 'mouseleave', 'mouseover'];
+        
+        // Check if it's a click that could trigger play/pause
+        if (e.type === 'click') {
+          // Get click position relative to video element
+          const rect = videoRef.current.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          
+          // Determine if click is in the center play/pause area (rough estimation)
+          const centerX = rect.width / 2;
+          const centerY = rect.height / 2;
+          const clickRadius = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
+          
+          // If click is in the center area or bottom controls area, prevent it
+          const isInPlayPauseArea = clickRadius < rect.width / 6; // Circle in the middle
+          const isInControlsArea = y > rect.height - 40; // Bottom controls area
+          
+          if (isInPlayPauseArea || isInControlsArea) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Show message to user
+            setIsSyncing(true);
+            setTimeout(() => {
+              setIsSyncing(false);
+            }, 1000);
+            
+            return false;
+          }
+        }
+        
+        // Always allow these events
+        if (allowedEvents.includes(e.type)) {
+          return true;
+        }
+        
+        // For other events related to playback control, check more carefully
+        if (['play', 'pause', 'seeking', 'timeupdate'].includes(e.type)) {
+          if (!processingRemoteUpdate) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+          }
+        }
+        
+        return true;
+      };
+      
+      // Add our custom event listeners
+      videoRef.current.addEventListener('click', preventPlaybackControl, true);
+      videoRef.current.addEventListener('play', preventPlaybackControl, true);
+      videoRef.current.addEventListener('pause', preventPlaybackControl, true);
+      videoRef.current.addEventListener('seeking', preventPlaybackControl, true);
+      
+      return () => {
+        // Clean up event listeners when component unmounts
+        if (videoRef.current) {
+          videoRef.current.removeEventListener('click', preventPlaybackControl, true);
+          videoRef.current.removeEventListener('play', preventPlaybackControl, true);
+          videoRef.current.removeEventListener('pause', preventPlaybackControl, true);
+          videoRef.current.removeEventListener('seeking', preventPlaybackControl, true);
+        }
+      };
+    }
+  }, [isHost, processingRemoteUpdate]);
+  
+  // Periodic sync for host - less frequent and with throttling
+  useEffect(() => {
+    const handleVideoStateSync = () => {
+      if (!videoRef.current || !socketRef.current || !isHost || processingRemoteUpdate) return;
+      
+      const currentState = {
+        isPlaying: !videoRef.current.paused,
+        currentTime: videoRef.current.currentTime
+      };
+      
+      // Only send updates if the state has changed significantly
+      if (lastSentState.current === null || 
+          lastSentState.current.isPlaying !== currentState.isPlaying ||
+          Math.abs(lastSentState.current.currentTime - currentState.currentTime) > 5) {
+        
+        console.log('Sending periodic sync update:', currentState);
+        socketRef.current.emit('videoStateChange', {
+          roomId,
+          videoState: currentState
+        });
+        
+        // Update the last sent state
+        lastSentState.current = currentState;
+      }
+    };
+    
+    // Set up periodic sync for the host (every 10 seconds instead of 5)
+    let syncInterval;
+    if (isHost && videoRef.current) {
+      syncInterval = setInterval(handleVideoStateSync, 10000);
+    }
+    
+    return () => {
+      if (syncInterval) {
+        clearInterval(syncInterval);
+      }
+    };
+  }, [isHost, roomId, processingRemoteUpdate]);
+  
   // Auto-scroll chat to bottom when new messages arrive
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -205,9 +354,9 @@ function Room() {
     ]);
   };
   
-  // Video event handlers
+  // Video event handlers - only for host and only when not processing remote updates
   const handlePlay = () => {
-    if (socketRef.current) {
+    if (socketRef.current && isHost && !processingRemoteUpdate) {
       socketRef.current.emit('videoStateChange', {
         roomId,
         videoState: {
@@ -219,7 +368,7 @@ function Room() {
   };
   
   const handlePause = () => {
-    if (socketRef.current) {
+    if (socketRef.current && isHost && !processingRemoteUpdate) {
       socketRef.current.emit('videoStateChange', {
         roomId,
         videoState: {
@@ -231,7 +380,7 @@ function Room() {
   };
   
   const handleSeek = () => {
-    if (socketRef.current) {
+    if (socketRef.current && isHost && !processingRemoteUpdate) {
       socketRef.current.emit('videoStateChange', {
         roomId,
         videoState: {
@@ -244,7 +393,7 @@ function Room() {
   
   // Explicitly share video with all users
   const handleShareVideo = () => {
-    if (socketRef.current && videoUrl) {
+    if (socketRef.current && videoUrl && isHost) {
       console.log('Manually sharing video with room:', videoUrl);
       socketRef.current.emit('shareVideo', {
         roomId,
@@ -307,15 +456,42 @@ function Room() {
       <div className="main-content">
         <div className="video-container">
           {videoUrl ? (
-            <>
+            <div className="video-wrapper">
               <video
                 ref={videoRef}
                 src={getAbsoluteVideoUrl(videoUrl)}
-                controls
-                onPlay={handlePlay}
-                onPause={handlePause}
-                onSeeked={handleSeek}
+                controls={isHost}
+                style={{ objectFit: videoFit }}
+                onPlay={isHost ? handlePlay : null}
+                onPause={isHost ? handlePause : null}
+                onSeeked={isHost ? handleSeek : null}
+                className={!isHost ? "viewer-video" : ""}
               />
+              {!isHost && (
+                <>
+                  <div className="viewer-controls">
+                    <button className="control-button" onClick={() => {
+                      setVideoFit(videoFit === 'contain' ? 'cover' : 'contain');
+                    }}>
+                      {videoFit === 'contain' ? 'Fill Screen' : 'Fit Screen'}
+                    </button>
+                    <button className="control-button fullscreen-button" onClick={() => {
+                      if (videoRef.current.requestFullscreen) {
+                        videoRef.current.requestFullscreen();
+                      } else if (videoRef.current.webkitRequestFullscreen) {
+                        videoRef.current.webkitRequestFullscreen();
+                      } else if (videoRef.current.msRequestFullscreen) {
+                        videoRef.current.msRequestFullscreen();
+                      }
+                    }}>
+                      Fullscreen
+                    </button>
+                  </div>
+                  <div className="viewer-message">
+                    <p>Only the host can control playback</p>
+                  </div>
+                </>
+              )}
               {isHost && (
                 <div className="host-controls">
                   <button onClick={handleShareVideo} className="share-button">
@@ -323,7 +499,7 @@ function Room() {
                   </button>
                 </div>
               )}
-            </>
+            </div>
           ) : (
             <div className="waiting-for-video">
               <p>Waiting for host to share a video...</p>
@@ -339,7 +515,8 @@ function Room() {
               {users.map(user => (
                 <li key={user.id}>
                   {user.username} {user.id === socketRef.current?.id && '(You)'}
-                  {isHost && user.id === socketRef.current?.id && ' (Host)'}
+                  {(isHost && user.id === socketRef.current?.id) || 
+                   (user.isHost && user.id !== socketRef.current?.id) ? ' (Host)' : ''}
                 </li>
               ))}
             </ul>
