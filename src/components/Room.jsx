@@ -27,6 +27,9 @@ function Room() {
   const [newMessage, setNewMessage] = useState('');
   const [copySuccess, setCopySuccess] = useState('');
   const [videoFit, setVideoFit] = useState('contain'); // 'contain' or 'cover'
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadComplete, setUploadComplete] = useState(false);
   
   // Flag to prevent event loop when receiving remote updates
   const [processingRemoteUpdate, setProcessingRemoteUpdate] = useState(false);
@@ -160,6 +163,29 @@ function Room() {
       addSystemMessage(data.text);
     });
     
+    // Handle upload progress updates
+    socketRef.current.on('uploadProgress', (data) => {
+      console.log(`Upload progress: ${data.progress}%`);
+      setUploadProgress(data.progress);
+      setIsUploading(data.progress < 100);
+    });
+    
+    // Handle upload complete notification
+    socketRef.current.on('uploadComplete', (data) => {
+      console.log('Upload complete:', data);
+      setUploadComplete(true);
+      setIsUploading(false);
+      setUploadProgress(100);
+      addSystemMessage('Video upload complete.');
+    });
+    
+    // Handle upload status updates
+    socketRef.current.on('uploadStatus', (data) => {
+      console.log('Upload status:', data);
+      setUploadComplete(data.complete);
+      setIsUploading(!data.complete);
+    });
+    
     // Handle video state updates from server
     socketRef.current.on('videoStateUpdate', (videoState) => {
       if (videoRef.current) {
@@ -213,7 +239,11 @@ function Room() {
       console.log('Received video URL update:', videoUrl);
       if (videoUrl) {
         setVideoUrl(videoUrl);
-        addSystemMessage('Video has been shared by the host');
+        
+        // If we're not the host, show a message
+        if (!isHost) {
+          addSystemMessage('Video has been shared by the host');
+        }
       }
     });
     
@@ -341,6 +371,32 @@ function Room() {
     }
   }, [messages]);
   
+  // Handle video loading errors
+  useEffect(() => {
+    const handleVideoError = (e) => {
+      console.error('Video error:', e);
+      
+      // If the error happens during upload, just wait
+      if (isUploading) {
+        console.log('Video error during upload, will retry');
+        // We can set up a retry mechanism here
+        setTimeout(() => {
+          if (videoRef.current) {
+            videoRef.current.load();
+          }
+        }, 5000);
+      }
+    };
+    
+    if (videoRef.current) {
+      videoRef.current.addEventListener('error', handleVideoError);
+      
+      return () => {
+        videoRef.current.removeEventListener('error', handleVideoError);
+      };
+    }
+  }, [videoRef.current, isUploading]);
+  
   // Helper to add system messages
   const addSystemMessage = (text) => {
     setMessages(prevMessages => [
@@ -445,7 +501,12 @@ function Room() {
               ⟳ Syncing...
             </span>
           )}
-          {lastSyncTime && !isSyncing && (
+          {!isSyncing && isUploading && (
+            <span className="uploading">
+              ↑ Uploading: {uploadProgress}%
+            </span>
+          )}
+          {lastSyncTime && !isSyncing && !isUploading && (
             <span className="synced">
               ✓ Synced
             </span>
@@ -466,7 +527,13 @@ function Room() {
                 onPause={isHost ? handlePause : null}
                 onSeeked={isHost ? handleSeek : null}
                 className={!isHost ? "viewer-video" : ""}
+                playsInline
               />
+              {isUploading && (
+                <div className="streaming-indicator">
+                  Uploading {uploadProgress}%
+                </div>
+              )}
               {!isHost && (
                 <>
                   <div className="viewer-controls">
@@ -504,6 +571,12 @@ function Room() {
             <div className="waiting-for-video">
               <p>Waiting for host to share a video...</p>
               <p className="small">Server URL: {SERVER_URL}</p>
+              {isUploading && (
+                <div className="progress-container">
+                  <div className="progress-bar" style={{ width: `${uploadProgress}%` }}></div>
+                  <p>{uploadProgress}% Uploaded</p>
+                </div>
+              )}
             </div>
           )}
         </div>
