@@ -69,6 +69,8 @@
     align-items: center;
     justify-content: center;
     position: relative;
+    z-index: 10;
+    pointer-events: auto !important;
   }
   
   .video-wrapper {
@@ -78,6 +80,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    z-index: 10;
+    padding-bottom: 45px;
   }
   
   .video-wrapper video {
@@ -122,7 +126,7 @@
   /* Custom controls for viewers */
   .viewer-controls {
     position: absolute;
-    bottom: 70px;
+    bottom: 90px;
     right: 10px;
     z-index: 20;
     display: flex;
@@ -139,6 +143,17 @@
     cursor: pointer;
     transition: background-color 0.2s;
   }
+
+  .full-screen-control-button {
+    top: 10px;
+    right: 10px;
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
   
   .control-button:hover {
     background-color: rgba(0, 0, 0, 0.9);
@@ -151,7 +166,7 @@
   /* Update the viewer message position */
   .viewer-message {
     position: absolute;
-    bottom: 10px;
+    bottom: 55px;
     left: 0;
     right: 0;
     text-align: center;
@@ -164,15 +179,26 @@
   
   .host-controls {
     position: absolute;
-    bottom: 10px;
+    bottom: 25px; /* Move it above the video controls */
     left: 0;
     right: 0;
     display: flex;
     justify-content: center;
-    z-index: 10;
+    z-index: 5; /* Lower z-index so it doesn't interfere with video controls */
     background-color: rgba(0, 0, 0, 0.5);
     padding: 8px;
+    gap: 10px;
   }
+
+  .host-controls button {
+    z-index: 5;
+    position: relative;
+  }
+
+  .host-video {
+    z-index: 10;
+    position: relative;
+  }  
   
   .share-button {
     background-color: #e74c3c;
@@ -330,6 +356,195 @@
     border-radius: 4px;
     cursor: pointer;
   }
+
+  /* Styles for the video progress overlay */
+.video-progress-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 4px;
+    background-color: #2ecc71;
+    z-index: 25;
+    transition: width 0.5s ease;
+  }
+  
+  /* Seek warning message */
+  .seek-warning {
+    position: absolute;
+    top: 20%;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(231, 76, 60, 0.9);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: bold;
+    z-index: 30;
+    animation: fadeIn 0.3s ease-in-out;
+  }
+  
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translate(-50%, -10px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+  }
+  
+  /* Styles for delete button */
+  .delete-button {
+    background-color: #e74c3c;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    margin-left: 10px;
+    opacity: 0.9;
+    transition: opacity 0.2s ease;
+  }
+  
+  .delete-button:hover {
+    opacity: 1;
+  }
+  
+  .delete-button:disabled {
+    background-color: #95a5a6;
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+  
+  /* Video deleted message */
+  .video-deleted-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    text-align: center;
+    padding: 2rem;
+  }
+  
+  .video-deleted-message p {
+    margin: 5px 0;
+  }
+  
+  .upload-prompt {
+    font-size: 0.9rem;
+    opacity: 0.8;
+    margin-top: 10px !important;
+  }
+   
+  /* Approaching boundary warning - shown when getting close to available content end */
+  .approaching-boundary {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    background-color: rgba(241, 196, 15, 0.9);
+    color: white;
+    padding: 5px 10px;
+    border-radius: 3px;
+    font-size: 0.9rem;
+    z-index: 30;
+    animation: pulse 1s infinite;
+  }
+
+/* Theater mode styles */
+.theater-container {
+  background-color: #000;
+}
+
+.theater-mode {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+  background: #000;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: row;
+  height: 100vh !important;
+  width: 100vw;
+}
+
+.theater-mode .video-container {
+  flex: 3;
+  height: 100vh;
+  max-height: none;
+  border-radius: 0;
+}
+
+.theater-mode .sidebar {
+  flex: 1;
+  height: 100vh;
+  max-width: 350px;
+  background: #1a1a1a;
+  color: #fff;
+  border-radius: 0;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.theater-mode .users-panel, 
+.theater-mode .chat-panel {
+  background-color: #2a2a2a;
+  color: #fff;
+}
+
+.theater-mode .message {
+  color: #eee;
+}
+
+.theater-mode .system-message {
+  color: #aaa;
+}
+
+.theater-room-info {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1100;
+  background: rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+  padding: 5px 10px;
+  border: none;
+  color: white;
+}
+
+/* Make text inputs better visible in theater mode */
+.theater-mode input {
+  background-color: #333;
+  color: #fff;
+  border: 1px solid #444;
+}
+
+.theater-mode input::placeholder {
+  color: #aaa;
+}
+
+/* Exit button for theater mode */
+.exit-theater {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  z-index: 1100;
+}
+
+.exit-theater:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Theater mode button */
+.theater-button {
+  margin-right: 5px;
+}
   
   @media (max-width: 768px) {
     .main-content {
