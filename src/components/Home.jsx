@@ -9,7 +9,7 @@ const getServerUrl = () => {
   const hostname = window.location.hostname;
   
   // Check if we're in local development or production
-  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  const isLocalhost = hostname === 'localhost' || hostname === 'https://sync-video-app.onrender.com';
   
   // Only add port for localhost; in production the hostname already includes everything needed
   const port = isLocalhost ? ':10000' : '';
