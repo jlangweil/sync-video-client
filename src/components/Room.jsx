@@ -7,16 +7,15 @@ import './Room.css';
 
 // Get the server URL dynamically based on the current browser location
 const getServerUrl = () => {
-  const protocol = window.location.protocol;
-  const hostname = window.location.hostname;
+  const isLocalhost = window.location.hostname === 'localhost' || 
+                       window.location.hostname === '127.0.0.1';
   
-  // Check if we're in local development or production
-  const isLocalhost = hostname === 'localhost' || hostname === 'https://sync-video-app.onrender.com';
-  
-  // Only add port for localhost; in production the hostname already includes everything needed
-  const port = isLocalhost ? ':10000' : '';
-  
-  return `${protocol}//${hostname}${port}`;
+  if (isLocalhost) {
+    return `${window.location.protocol}//${window.location.hostname}:10000`;
+  } else {
+    // In production, this should be your backend Render URL
+    return 'https://sync-video-app.onrender.com';
+  }
 };
 
 // Use this server URL for both API calls and Socket.io connections
@@ -97,9 +96,15 @@ function Room() {
     // Initialize socket with dynamic server URL
     console.log('Connecting to socket server at:', SERVER_URL);
     socketRef.current = io(SERVER_URL, {
-      transports: ['websocket', 'polling'],
+      transports: ['websocket', 'polling'], // Try websocket first, fallback to polling
       reconnectionAttempts: 10,
-      reconnectionDelay: 1000
+      reconnectionDelay: 1000,
+      path: '/socket.io/', // Make sure this matches the server's path
+      secure: window.location.protocol === 'https:', // Important for HTTPS on Render
+      rejectUnauthorized: false, // Might be needed for development
+      extraHeaders: {
+        "Origin": window.location.origin // Explicitly set origin for CORS
+      }
     });
     
     // Add connection logging
