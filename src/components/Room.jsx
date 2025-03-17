@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import io from 'socket.io-client';
+import Peer from 'simple-peer';
 import axios from 'axios';
 import './Room.css';
 
@@ -8,9 +9,14 @@ import './Room.css';
 const getServerUrl = () => {
   const protocol = window.location.protocol;
   const hostname = window.location.hostname;
-  const port = 3000; // Your server port
   
-  return `${protocol}//${hostname}:${port}`;
+  // Check if we're in local development or production
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  
+  // Only add port for localhost; in production the hostname already includes everything needed
+  const port = isLocalhost ? ':10000' : '';
+  
+  return `${protocol}//${hostname}${port}`;
 };
 
 // Use this server URL for both API calls and Socket.io connections
@@ -28,21 +34,24 @@ function Room() {
   const [newMessage, setNewMessage] = useState('');
   const [copySuccess, setCopySuccess] = useState('');
   const [videoFit, setVideoFit] = useState('contain'); // 'contain' or 'cover'
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadComplete, setUploadComplete] = useState(false);
-  const [isDeletingVideo, setIsDeletingVideo] = useState(false);
-  const [videoDeleted, setVideoDeleted] = useState(false);
-  const [availableDuration, setAvailableDuration] = useState(0);
-  const [totalDuration, setTotalDuration] = useState(0);
-  const [showSeekWarning, setShowSeekWarning] = useState(false);
-  const [approachingBoundary, setApproachingBoundary] = useState(false);
   const [isTheaterMode, setIsTheaterMode] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [pendingViewers, setPendingViewers] = useState([]);
+  const [streamLoading, setStreamLoading] = useState(false);
+  const [streamError, setStreamError] = useState('');
+  const [hostCanWatch, setHostCanWatch] = useState(false);
+  
+  // WebRTC state
+  const [peerConnections, setPeerConnections] = useState({});
+  const peersRef = useRef({});
+  const localStreamRef = useRef(null);
+  const hostVideoRef = useRef(null);
+  const viewerVideoRef = useRef(null);
+  const fileUrlRef = useRef(null);
   
   // Flag to prevent event loop when receiving remote updates
   const [processingRemoteUpdate, setProcessingRemoteUpdate] = useState(false);
   
-  const videoRef = useRef(null);
   const socketRef = useRef(null);
   const chatContainerRef = useRef(null);
   
@@ -57,36 +66,20 @@ function Room() {
     setIsTheaterMode(!isTheaterMode);
     // Focus back on the video element after toggling
     setTimeout(() => {
-      if (videoRef.current) {
-        videoRef.current.focus();
+      if (hostVideoRef.current) {
+        hostVideoRef.current.focus();
+      } else if (viewerVideoRef.current) {
+        viewerVideoRef.current.focus();
       }
     }, 100);
-  };
-  
-  // Function to get absolute URL for video
-  const getAbsoluteVideoUrl = (url) => {
-    if (!url) return '';
-    
-    // If it's already an absolute URL, return it
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      return url;
-    }
-    
-    // Make sure it starts with a slash
-    if (!url.startsWith('/')) {
-      url = '/' + url;
-    }
-    
-    // Convert to absolute URL using the dynamic server URL
-    return `${SERVER_URL}${url}`;
   };
   
   // Initialize socket and room
   useEffect(() => {
     // Get data from localStorage
     const storedUsername = localStorage.getItem('username');
-    const storedVideoUrl = localStorage.getItem('videoUrl');
     const storedIsHost = localStorage.getItem('isHost') === 'true';
+    const storedFileUrl = sessionStorage.getItem('hostFileUrl');
     
     if (!storedUsername) {
       navigate('/');
@@ -96,9 +89,9 @@ function Room() {
     setUsername(storedUsername);
     setIsHost(storedIsHost);
     
-    if (storedVideoUrl) {
-      console.log('Retrieved stored video URL:', storedVideoUrl);
-      setVideoUrl(storedVideoUrl);
+    if (storedIsHost && storedFileUrl) {
+      fileUrlRef.current = storedFileUrl;
+      setVideoUrl(`local:${localStorage.getItem('hostFileName')}`);
     }
     
     // Initialize socket with dynamic server URL
@@ -119,18 +112,6 @@ function Room() {
         username: storedUsername,
         isHost: storedIsHost
       });
-      
-      // If this user is the host and has a video URL, share it with the room after a delay
-      if (storedIsHost && storedVideoUrl) {
-        console.log('Host is sharing video URL:', storedVideoUrl);
-        setTimeout(() => {
-          console.log('Emitting shareVideo event');
-          socketRef.current.emit('shareVideo', {
-            roomId,
-            videoUrl: storedVideoUrl
-          });
-        }, 2000); // Delay to ensure room is joined first
-      }
     });
     
     socketRef.current.on('connect_error', (error) => {
@@ -146,26 +127,9 @@ function Room() {
       if (data.user.id !== socketRef.current.id) {
         addSystemMessage(`${data.user.username} has joined the room`);
         
-        // If we're the host and have a video, re-share it when a new user joins
-        if (storedIsHost && videoUrl) {
-          console.log('Re-sharing video URL after new user joined:', videoUrl);
-          setTimeout(() => {
-            socketRef.current.emit('shareVideo', {
-              roomId,
-              videoUrl
-            });
-            
-            // Also send current playback state
-            if (videoRef.current) {
-              socketRef.current.emit('videoStateChange', {
-                roomId,
-                videoState: {
-                  isPlaying: !videoRef.current.paused,
-                  currentTime: videoRef.current.currentTime
-                }
-              });
-            }
-          }, 1000);
+        // If we're the host and streaming, add this user to pending viewers
+        if (storedIsHost && isStreaming) {
+          setPendingViewers(prev => [...prev, data.user.id]);
         }
       }
     });
@@ -174,6 +138,21 @@ function Room() {
     socketRef.current.on('userLeft', (data) => {
       setUsers(data.users);
       addSystemMessage(`${data.username} has left the room`);
+      
+      // Clean up peer connection if exists
+      if (peersRef.current[data.userId]) {
+        try {
+          peersRef.current[data.userId].destroy();
+          delete peersRef.current[data.userId];
+          setPeerConnections(prev => {
+            const newPeers = {...prev};
+            delete newPeers[data.userId];
+            return newPeers;
+          });
+        } catch (err) {
+          console.error('Error cleaning up peer connection:', err);
+        }
+      }
     });
     
     // Handle system messages
@@ -181,276 +160,194 @@ function Room() {
       addSystemMessage(data.text);
     });
     
-    // Handle upload progress updates
-    socketRef.current.on('uploadProgress', (data) => {
-      console.log(`Upload progress: ${data.progress}%`);
-      setUploadProgress(data.progress);
-      setIsUploading(data.progress < 100);
-    });
-    
-    // Handle upload complete notification
-    socketRef.current.on('uploadComplete', (data) => {
-      console.log('Upload complete:', data);
-      setUploadComplete(true);
-      setIsUploading(false);
-      setUploadProgress(100);
-      addSystemMessage('Video upload complete.');
-    });
-    
-    // Handle upload status updates
-    socketRef.current.on('uploadStatus', (data) => {
-      console.log('Upload status:', data);
-      setUploadComplete(data.complete);
-      setIsUploading(!data.complete);
-    });
-    
-    // Handle video deletion events
-    socketRef.current.on('videoDeleted', () => {
-      console.log('Video has been deleted');
-      setVideoUrl('');
-      setVideoDeleted(true);
-      addSystemMessage('The video has been deleted by the host');
-    });
-    
-    // Handle video state updates from server
-    socketRef.current.on('videoStateUpdate', (videoState) => {
-      if (videoRef.current) {
-        console.log('Received video state update:', videoState);
-        
-        // Set this flag to prevent triggering our own events while updating
-        setProcessingRemoteUpdate(true);
-        
-        // For non-hosts, always follow the host's state
-        // For hosts, only apply if it wasn't our own update
-        const shouldUpdateTime = !isHost || 
-          Math.abs(videoRef.current.currentTime - videoState.currentTime) > 2.0;
-        
-        if (shouldUpdateTime) {
-          videoRef.current.currentTime = videoState.currentTime;
-        }
-        
-        // Set play/pause state (for both host and viewers)
-        if (videoState.isPlaying && videoRef.current.paused) {
-          videoRef.current.play()
-            .catch(err => console.error('Error playing video:', err));
-        } else if (!videoState.isPlaying && !videoRef.current.paused) {
-          videoRef.current.pause();
-        }
-        
-        setIsSyncing(true);
-        setLastSyncTime(new Date());
-        
-        // Reset sync indicator after 2 seconds
-        setTimeout(() => {
-          setIsSyncing(false);
-        }, 2000);
-        
-        // Clear the processing flag after a short delay
-        // This prevents event handlers from firing during the update
-        setTimeout(() => {
-          setProcessingRemoteUpdate(false);
-        }, 500);
-      } else {
-        console.log('Received video state update but video element not ready');
-      }
-    });
-    
     // Handle new messages
     socketRef.current.on('newMessage', (message) => {
       setMessages(prevMessages => [...prevMessages, message]);
     });
     
-    // Handle video URL updates from other users (mainly the host)
-    socketRef.current.on('videoUrlUpdate', ({ videoUrl }) => {
-      console.log('Received video URL update:', videoUrl);
-      if (videoUrl) {
-        setVideoUrl(videoUrl);
-        setVideoDeleted(false);
-        
-        // If we're not the host, show a message
-        if (!isHost) {
-          addSystemMessage('Video has been shared by the host');
+    // Handle streaming status updates
+    socketRef.current.on('streaming-status', (data) => {
+      if (!isHost) {
+        if (data.isStreaming) {
+          setVideoUrl(`streaming:${data.fileName}`);
+          addSystemMessage(`Host is streaming: ${data.fileName}`);
+        } else {
+          setVideoUrl('');
+          addSystemMessage('Host has stopped streaming');
         }
       }
     });
     
     return () => {
+      // Stop all tracks in the local stream
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => {
+          track.stop();
+        });
+      }
+      
+      // Destroy all peer connections
+      Object.values(peersRef.current).forEach(peer => {
+        if (peer && peer.destroy) {
+          try {
+            peer.destroy();
+          } catch (err) {
+            console.error('Error destroying peer:', err);
+          }
+        }
+      });
+      
+      // Disconnect socket
       socketRef.current.disconnect();
     };
   }, [roomId, navigate]);
   
-  // Add event listeners to intercept unwanted control attempts for viewers
+  // Set up WebRTC for host
   useEffect(() => {
-    if (!isHost && videoRef.current) {
-      // Function to intercept and prevent playback control
-      const preventPlaybackControl = (e) => {
-        // Allow these events to propagate to enable fullscreen and other features
-        const allowedEvents = ['mousemove', 'mouseenter', 'mouseleave', 'mouseover'];
-        
-        // Check if it's a click that could trigger play/pause
-        if (e.type === 'click') {
-          // Get click position relative to video element
-          const rect = videoRef.current.getBoundingClientRect();
-          const x = e.clientX - rect.left;
-          const y = e.clientY - rect.top;
-          
-          // Determine if click is in the center play/pause area (rough estimation)
-          const centerX = rect.width / 2;
-          const centerY = rect.height / 2;
-          const clickRadius = Math.sqrt(Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2));
-          
-          // If click is in the center area or bottom controls area, prevent it
-          const isInPlayPauseArea = clickRadius < rect.width / 6; // Circle in the middle
-          const isInControlsArea = y > rect.height - 40; // Bottom controls area
-          
-          if (isInPlayPauseArea || isInControlsArea) {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            // Show message to user
-            setIsSyncing(true);
-            setTimeout(() => {
-              setIsSyncing(false);
-            }, 1000);
-            
-            return false;
-          }
-        }
-        
-        // Always allow these events
-        if (allowedEvents.includes(e.type)) {
-          return true;
-        }
-        
-        // For other events related to playback control, check more carefully
-        if (['play', 'pause', 'seeking', 'timeupdate'].includes(e.type)) {
-          if (!processingRemoteUpdate) {
-            e.preventDefault();
-            e.stopPropagation();
-            return false;
-          }
-        }
-        
-        return true;
-      };
-      
-      // Add our custom event listeners
-      videoRef.current.addEventListener('click', preventPlaybackControl, true);
-      videoRef.current.addEventListener('play', preventPlaybackControl, true);
-      videoRef.current.addEventListener('pause', preventPlaybackControl, true);
-      videoRef.current.addEventListener('seeking', preventPlaybackControl, true);
-      
-      return () => {
-        // Clean up event listeners when component unmounts
-        if (videoRef.current) {
-          videoRef.current.removeEventListener('click', preventPlaybackControl, true);
-          videoRef.current.removeEventListener('play', preventPlaybackControl, true);
-          videoRef.current.removeEventListener('pause', preventPlaybackControl, true);
-          videoRef.current.removeEventListener('seeking', preventPlaybackControl, true);
-        }
-      };
-    }
-  }, [isHost, processingRemoteUpdate]);
-  
-  // Effect to calculate available duration based on upload progress
-  useEffect(() => {
-    if (videoRef.current && totalDuration > 0) {
-      // Calculate available duration based on upload progress
-      const calculated = (uploadProgress / 100) * totalDuration;
-      setAvailableDuration(calculated);
-      
-      console.log(`Available duration: ${calculated.toFixed(2)}s of ${totalDuration.toFixed(2)}s (${uploadProgress}%)`);
-    }
-  }, [uploadProgress, totalDuration]);
-  
-  // Handle video metadata loading
-  const handleMetadataLoaded = () => {
-    if (videoRef.current) {
-      const duration = videoRef.current.duration;
-      setTotalDuration(duration);
-      
-      // Update available duration based on current upload progress
-      const calculated = (uploadProgress / 100) * duration;
-      setAvailableDuration(calculated);
-      
-      console.log(`Video metadata loaded. Duration: ${duration.toFixed(2)}s`);
-    }
-  };
-  
-  // Add a time update handler to prevent playback beyond available content
-// Remove or reduce the restrictiveness of the timeupdate handler
-useEffect(() => {
-    const handleTimeUpdate = () => {
-      if (videoRef.current && isUploading) {
-        const currentTime = videoRef.current.currentTime;
-        
-        // If we're approaching the end of available content (within 3 seconds)
-        // and still uploading, show a visual indicator to the host
-        if (isHost && currentTime > availableDuration - 3 && currentTime < availableDuration) {
-          setApproachingBoundary(true);
-        } else {
-          setApproachingBoundary(false);
-        }
-        
-        // Only restrict playback if we're still uploading
-        // If we somehow got beyond the available duration, seek back
-        if (currentTime > availableDuration) {
-          console.log(`Beyond available duration, seeking back: ${currentTime.toFixed(1)}s > ${availableDuration.toFixed(1)}s`);
-          videoRef.current.currentTime = Math.max(0, availableDuration - 1);
-        }
-      }
-    };
+    if (!socketRef.current || !isHost) return;
     
-    if (videoRef.current) {
-      // Only add this listener if we're uploading
-      if (isUploading) {
-        videoRef.current.addEventListener('timeupdate', handleTimeUpdate);
-        
-        return () => {
-          videoRef.current?.removeEventListener('timeupdate', handleTimeUpdate);
-        };
+    // Handle stream requests from viewers
+    socketRef.current.on('stream-requested', async ({ from, roomId }) => {
+      console.log(`Stream requested by viewer ${from}`);
+      
+      try {
+        // Create a new peer connection for this viewer
+        await createPeerConnection(from, true);
+      } catch (err) {
+        console.error('Error creating peer connection:', err);
       }
-    }
-  }, [isHost, availableDuration, isUploading, videoRef.current]);
+    });
+    
+    // Handle WebRTC signals from peers
+    socketRef.current.on('webrtc-signal', async ({ from, signal }) => {
+      console.log(`Received WebRTC signal from ${from}`);
+      
+      // If we already have a peer for this user, pass the signal
+      if (peersRef.current[from]) {
+        try {
+          peersRef.current[from].signal(signal);
+        } catch (err) {
+          console.error('Error processing signal:', err);
+        }
+      } else if (isHost) {
+        // If we don't have a peer yet, create one (as host)
+        try {
+          await createPeerConnection(from, true);
+          // After creating, try signaling again
+          setTimeout(() => {
+            if (peersRef.current[from]) {
+              peersRef.current[from].signal(signal);
+            }
+          }, 1000);
+        } catch (err) {
+          console.error('Error creating peer on signal:', err);
+        }
+      }
+    });
+    
+    return () => {
+      // Clean up listeners
+      socketRef.current.off('stream-requested');
+      socketRef.current.off('webrtc-signal');
+    };
+  }, [socketRef.current, isHost, roomId, isStreaming]);
   
-  // Periodic sync for host - less frequent and with throttling
+  // Set up WebRTC for viewers
   useEffect(() => {
-    const handleVideoStateSync = () => {
-      if (!videoRef.current || !socketRef.current || !isHost || processingRemoteUpdate) return;
+    if (!socketRef.current || isHost) return;
+    
+    // Handle WebRTC signals as viewer
+    socketRef.current.on('webrtc-signal', ({ from, signal }) => {
+      console.log(`Viewer received WebRTC signal from host: ${from}`);
       
-      const currentState = {
-        isPlaying: !videoRef.current.paused,
-        currentTime: videoRef.current.currentTime
-      };
-      
-      // Only send updates if the state has changed significantly
-      if (lastSentState.current === null || 
-          lastSentState.current.isPlaying !== currentState.isPlaying ||
-          Math.abs(lastSentState.current.currentTime - currentState.currentTime) > 5) {
-        
-        console.log('Sending periodic sync update:', currentState);
-        socketRef.current.emit('videoStateChange', {
-          roomId,
-          videoState: currentState
+      // If we don't have a peer yet, create one (as viewer)
+      if (!peersRef.current[from]) {
+        const peer = new Peer({
+          initiator: false,
+          trickle: true,
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:global.stun.twilio.com:3478' }
+            ]
+          }
         });
         
-        // Update the last sent state
-        lastSentState.current = currentState;
+        peer.on('signal', (data) => {
+          console.log('Viewer sending signal back to host');
+          socketRef.current.emit('webrtc-signal', {
+            roomId,
+            signal: data,
+            to: from
+          });
+        });
+        
+        peer.on('stream', (stream) => {
+          console.log('Viewer received stream from host!');
+          
+          // Connect the stream to the video element
+          if (viewerVideoRef.current) {
+            viewerVideoRef.current.srcObject = stream;
+            viewerVideoRef.current.play().catch(err => console.error('Error playing stream:', err));
+          }
+        });
+        
+        peer.on('error', (err) => {
+          console.error('Peer connection error:', err);
+          addSystemMessage('Connection error. Try refreshing the page.');
+        });
+        
+        peer.on('close', () => {
+          console.log('Peer connection closed');
+          addSystemMessage('Connection to host closed.');
+        });
+        
+        // Store the peer connection
+        peersRef.current[from] = peer;
+        setPeerConnections(prev => ({ ...prev, [from]: peer }));
       }
-    };
+      
+      // Pass the signal to the peer
+      try {
+        peersRef.current[from].signal(signal);
+      } catch (err) {
+        console.error('Error processing signal as viewer:', err);
+      }
+    });
     
-    // Set up periodic sync for the host (every 10 seconds instead of 5)
-    let syncInterval;
-    if (isHost && videoRef.current) {
-      syncInterval = setInterval(handleVideoStateSync, 10000);
+    // If the video URL indicates streaming, request the stream
+    if (videoUrl && videoUrl.startsWith('streaming:')) {
+      // Request stream after a short delay to ensure socket connection is ready
+      const requestTimeout = setTimeout(() => {
+        console.log('Viewer requesting stream from host');
+        socketRef.current.emit('request-stream', { roomId });
+      }, 2000);
+      
+      return () => {
+        clearTimeout(requestTimeout);
+      };
     }
     
     return () => {
-      if (syncInterval) {
-        clearInterval(syncInterval);
-      }
+      socketRef.current.off('webrtc-signal');
     };
-  }, [isHost, roomId, processingRemoteUpdate]);
+  }, [socketRef.current, isHost, roomId, videoUrl]);
+  
+  // Handle pending viewers when streaming starts
+  useEffect(() => {
+    if (isHost && isStreaming && pendingViewers.length > 0) {
+      // Create peer connections for all pending viewers
+      pendingViewers.forEach(async (viewerId) => {
+        try {
+          await createPeerConnection(viewerId, true);
+        } catch (err) {
+          console.error(`Error creating peer connection for viewer ${viewerId}:`, err);
+        }
+      });
+      
+      setPendingViewers([]);
+    }
+  }, [isHost, isStreaming, pendingViewers]);
   
   // Auto-scroll chat to bottom when new messages arrive
   useEffect(() => {
@@ -459,32 +356,230 @@ useEffect(() => {
     }
   }, [messages]);
   
-  // Handle video loading errors
-  useEffect(() => {
-    const handleVideoError = (e) => {
-      console.error('Video error:', e);
-      
-      // If the error happens during upload, just wait
-      if (isUploading) {
-        console.log('Video error during upload, will retry');
-        // We can set up a retry mechanism here
-        setTimeout(() => {
-          if (videoRef.current) {
-            videoRef.current.load();
-          }
-        }, 5000);
-      }
-    };
-    
-    if (videoRef.current) {
-      videoRef.current.addEventListener('error', handleVideoError);
-      
-      return () => {
-        videoRef.current.removeEventListener('error', handleVideoError);
-      };
+  // Function to create a peer connection
+  const createPeerConnection = async (userId, initiator = false) => {
+    // Don't create duplicate connections
+    if (peersRef.current[userId]) {
+      console.log(`Peer connection to ${userId} already exists`);
+      return peersRef.current[userId];
     }
-  }, [videoRef.current, isUploading]);
+    
+    console.log(`Creating ${initiator ? 'initiator' : 'receiver'} peer connection to ${userId}`);
+    
+    // Create a new peer connection
+    const peer = new Peer({
+      initiator,
+      trickle: true,
+      config: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' }
+        ]
+      }
+    });
+    
+    peer.on('signal', (data) => {
+      console.log(`Sending signal to ${userId}`);
+      socketRef.current.emit('webrtc-signal', {
+        roomId,
+        signal: data,
+        to: userId
+      });
+    });
+    
+    peer.on('error', (err) => {
+      console.error('Peer connection error:', err);
+      addSystemMessage(`Connection error with ${users.find(u => u.id === userId)?.username || 'a user'}`);
+    });
+    
+    peer.on('close', () => {
+      console.log(`Peer connection to ${userId} closed`);
+    });
+    
+    // For host: add the stream to the peer connection
+    if (isHost && localStreamRef.current) {
+      peer.addStream(localStreamRef.current);
+    }
+    
+    // Store the peer connection
+    peersRef.current[userId] = peer;
+    setPeerConnections(prev => ({ ...prev, [userId]: peer }));
+    
+    return peer;
+  };
   
+// Add this to your state variables at the top of Room component
+const streamVideoRef = useRef(null); // Separate video element for streaming
+
+// Replace your startStreaming function with this version
+const startStreaming = async () => {
+  if (!fileUrlRef.current) {
+    setStreamError('No file selected');
+    return;
+  }
+  
+  setStreamLoading(true);
+  setStreamError('');
+  
+  try {
+    const fileName = localStorage.getItem('hostFileName');
+    console.log('Starting to stream file:', fileName);
+    
+    // Create a hidden video element for streaming
+    const streamVideo = document.createElement('video');
+    streamVideo.src = fileUrlRef.current;
+    streamVideo.muted = true; // Mute this hidden element
+    
+    // Wait for the hidden video to be ready
+    await new Promise((resolve, reject) => {
+      streamVideo.onloadedmetadata = () => resolve();
+      streamVideo.onerror = (e) => reject(new Error('Error loading video file'));
+      streamVideo.load();
+      
+      // Set a timeout in case loading takes too long
+      setTimeout(() => reject(new Error('Timeout loading video')), 10000);
+    });
+    
+    // Start the hidden video playing
+    await streamVideo.play();
+    
+    // Capture the stream from the hidden video
+    const stream = streamVideo.captureStream();
+    localStreamRef.current = stream;
+    
+    // Update streaming status
+    setIsStreaming(true);
+    setStreamLoading(false);
+    
+    // Notify server about streaming status
+    socketRef.current.emit('streaming-status-update', {
+      roomId,
+      streaming: true,
+      fileName,
+      fileType: localStorage.getItem('hostFileType')
+    });
+    
+    // Update the video URL for the host
+    setVideoUrl(`streaming:${fileName}`);
+    
+    // Create peer connections for all non-host users in the room
+    const viewerIds = users.filter(user => !user.isHost).map(user => user.id);
+    
+    for (const viewerId of viewerIds) {
+      try {
+        const peer = await createPeerConnection(viewerId, true);
+        // Add the stream to the peer
+        if (localStreamRef.current && peer.addStream) {
+          peer.addStream(localStreamRef.current);
+        }
+      } catch (err) {
+        console.error(`Error creating peer connection for viewer ${viewerId}:`, err);
+      }
+    }
+    
+    // Create a local viewer for the host
+    setTimeout(() => {
+      if (hostVideoRef.current) {
+        // Set the source of the host video to the original file
+        hostVideoRef.current.src = fileUrlRef.current;
+        hostVideoRef.current.muted = false;
+        hostVideoRef.current.load();
+        hostVideoRef.current.play().catch(err => {
+          console.error('Auto-play failed for host:', err);
+        });
+        setHostCanWatch(true);
+      }
+    }, 1000);
+    
+    addSystemMessage('Started streaming. Viewers can now watch.');
+    
+    // Setup sync loop to match the host video with streaming video
+    const syncInterval = setInterval(() => {
+      if (streamVideo && hostVideoRef.current && !processingRemoteUpdate) {
+        // Sync the hidden streaming video with the host video
+        if (Math.abs(streamVideo.currentTime - hostVideoRef.current.currentTime) > 1) {
+          streamVideo.currentTime = hostVideoRef.current.currentTime;
+        }
+        
+        if (hostVideoRef.current.paused && !streamVideo.paused) {
+          streamVideo.pause();
+          handleVideoStateChange(false, streamVideo.currentTime);
+        } else if (!hostVideoRef.current.paused && streamVideo.paused) {
+          streamVideo.play();
+          handleVideoStateChange(true, streamVideo.currentTime);
+        }
+      }
+    }, 1000);
+    
+    // Store the interval ID for cleanup
+    window.syncIntervalId = syncInterval;
+    
+    return stream;
+  } catch (err) {
+    console.error('Error starting stream:', err);
+    setStreamError(`Error starting stream: ${err.message}`);
+    setStreamLoading(false);
+    return null;
+  }
+};
+
+// Also update your stopStreaming function
+const stopStreaming = () => {
+  if (!isStreaming) return;
+  
+  // Clear sync interval
+  if (window.syncIntervalId) {
+    clearInterval(window.syncIntervalId);
+    window.syncIntervalId = null;
+  }
+  
+  // Stop all tracks in the local stream
+  if (localStreamRef.current) {
+    localStreamRef.current.getTracks().forEach(track => {
+      track.stop();
+    });
+    localStreamRef.current = null;
+  }
+  
+  // Clear the host video element
+  if (hostVideoRef.current) {
+    hostVideoRef.current.pause();
+    hostVideoRef.current.src = '';
+    hostVideoRef.current.load();
+  }
+  
+  // Destroy all peer connections
+  Object.values(peersRef.current).forEach(peer => {
+    if (peer && peer.destroy) {
+      try {
+        peer.destroy();
+      } catch (err) {
+        console.error('Error destroying peer:', err);
+      }
+    }
+  });
+  
+  // Reset peer connections
+  peersRef.current = {};
+  setPeerConnections({});
+  
+  // Update state
+  setIsStreaming(false);
+  setHostCanWatch(false);
+  
+  // Notify server about streaming status
+  socketRef.current.emit('streaming-status-update', {
+    roomId,
+    streaming: false,
+    fileName: null,
+    fileType: null
+  });
+  
+  // Update the video URL
+  setVideoUrl('');
+  
+  addSystemMessage('Stopped streaming.');
+};
   // Helper to add system messages
   const addSystemMessage = (text) => {
     setMessages(prevMessages => [
@@ -496,114 +591,6 @@ useEffect(() => {
         isSystem: true
       }
     ]);
-  };
-  
-  // Video event handlers - only for host and only when not processing remote updates
-  const handlePlay = () => {
-    if (socketRef.current && isHost && !processingRemoteUpdate) {
-      socketRef.current.emit('videoStateChange', {
-        roomId,
-        videoState: {
-          isPlaying: true,
-          currentTime: videoRef.current.currentTime
-        }
-      });
-    }
-  };
-  
-  const handlePause = () => {
-    if (socketRef.current && isHost && !processingRemoteUpdate) {
-      socketRef.current.emit('videoStateChange', {
-        roomId,
-        videoState: {
-          isPlaying: false,
-          currentTime: videoRef.current.currentTime
-        }
-      });
-    }
-  };
-  
-  // Updated seek handler to check if seeking position is available
-  const handleSeek = () => {
-    if (socketRef.current && isHost && !processingRemoteUpdate && videoRef.current) {
-      const seekPosition = videoRef.current.currentTime;
-      
-      // Only restrict seeking if we're still uploading the video
-      // If upload is complete, allow seeking to any position
-      if (isUploading && seekPosition > availableDuration) {
-        console.log(`Attempted to seek beyond available content: ${seekPosition}s > ${availableDuration}s`);
-        
-        // Show warning to the host
-        setShowSeekWarning(true);
-        setTimeout(() => setShowSeekWarning(false), 3000);
-        
-        // Reset to a safe position (1 second before the available boundary)
-        const safePosition = Math.max(0, availableDuration - 1);
-        videoRef.current.currentTime = safePosition;
-        
-        // Emit the safe position to keep everyone in sync
-        socketRef.current.emit('videoStateChange', {
-          roomId,
-          videoState: {
-            isPlaying: !videoRef.current.paused,
-            currentTime: safePosition
-          }
-        });
-        
-        return;
-      }
-      
-      // If seeking within available content, proceed normally
-      console.log(`Host seeked to ${seekPosition}s, emitting to all viewers`);
-      socketRef.current.emit('videoStateChange', {
-        roomId,
-        videoState: {
-          isPlaying: !videoRef.current.paused,
-          currentTime: seekPosition
-        }
-      });
-    }
-  };
-  
-  // Explicitly share video with all users
-  const handleShareVideo = () => {
-    if (socketRef.current && videoUrl && isHost) {
-      console.log('Manually sharing video with room:', videoUrl);
-      socketRef.current.emit('shareVideo', {
-        roomId,
-        videoUrl
-      });
-      addSystemMessage('You shared the video with everyone in the room');
-    }
-  };
-  
-  // Handle video deletion
-  const handleDeleteVideo = () => {
-    if (!isHost || !videoUrl) return;
-    
-    // Get videoId from URL or state
-    const match = videoUrl.match(/\/videos\/([^.]+)\.mp4/);
-    if (!match) {
-      console.error('Cannot extract videoId from URL:', videoUrl);
-      return;
-    }
-    
-    const videoId = match[1];
-    
-    // Ask for confirmation
-    if (!window.confirm('Are you sure you want to delete this video? This action cannot be undone.')) {
-      return;
-    }
-    
-    setIsDeletingVideo(true);
-    
-    // Use the Socket.io approach for consistency
-    socketRef.current.emit('deleteVideo', {
-      roomId,
-      videoId
-    });
-    
-    setIsDeletingVideo(false);
   };
   
   // Handle sending messages
@@ -632,16 +619,85 @@ useEffect(() => {
         console.error('Failed to copy:', err);
       });
   };
-
-  // Format time for display
-  const formatTime = (seconds) => {
-    if (isNaN(seconds) || seconds === Infinity) return "0:00";
-    
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  
+  // Handle video state change (play/pause/seek)
+  const handleVideoStateChange = (isPlaying, currentTime) => {
+    if (socketRef.current && isHost) {
+      socketRef.current.emit('videoStateChange', {
+        roomId,
+        videoState: {
+          isPlaying,
+          currentTime
+        }
+      });
+    }
   };
-
+  
+  // Handle host video playback events
+  const handlePlay = () => {
+    if (isHost && hostVideoRef.current) {
+      handleVideoStateChange(true, hostVideoRef.current.currentTime);
+    }
+  };
+  
+  const handlePause = () => {
+    if (isHost && hostVideoRef.current) {
+      handleVideoStateChange(false, hostVideoRef.current.currentTime);
+    }
+  };
+  
+  const handleSeek = () => {
+    if (isHost && hostVideoRef.current) {
+      handleVideoStateChange(!hostVideoRef.current.paused, hostVideoRef.current.currentTime);
+    }
+  };
+  
+  // Handle video state updates from server (for viewers)
+  useEffect(() => {
+    if (!socketRef.current) return;
+    
+    socketRef.current.on('videoStateUpdate', (videoState) => {
+      console.log('Received video state update:', videoState);
+      
+      // Set this flag to prevent triggering our own events
+      setProcessingRemoteUpdate(true);
+      
+      // For viewers with WebRTC stream
+      if (!isHost && viewerVideoRef.current && viewerVideoRef.current.srcObject) {
+        if (videoState.isPlaying && viewerVideoRef.current.paused) {
+          viewerVideoRef.current.play()
+            .catch(err => console.error('Error playing video:', err));
+        } else if (!videoState.isPlaying && !viewerVideoRef.current.paused) {
+          viewerVideoRef.current.pause();
+        }
+        
+        // Only update time if it's significantly different
+        if (Math.abs(viewerVideoRef.current.currentTime - videoState.currentTime) > 2) {
+          viewerVideoRef.current.currentTime = videoState.currentTime;
+        }
+      }
+      
+      // For hosts, ignore state updates (they control playback)
+      
+      setIsSyncing(true);
+      setLastSyncTime(new Date());
+      
+      // Reset sync indicator after 2 seconds
+      setTimeout(() => {
+        setIsSyncing(false);
+      }, 2000);
+      
+      // Clear the processing flag after a short delay
+      setTimeout(() => {
+        setProcessingRemoteUpdate(false);
+      }, 500);
+    });
+    
+    return () => {
+      socketRef.current.off('videoStateUpdate');
+    };
+  }, [socketRef.current, isHost]);
+  
   return (
     <div className={`room-container ${isTheaterMode ? 'theater-container' : ''}`}>
       <div className={`room-info ${isTheaterMode ? 'theater-room-info' : ''}`}>
@@ -657,131 +713,145 @@ useEffect(() => {
               ⟳ Syncing...
             </span>
           )}
-          {!isSyncing && isUploading && (
-            <span className="uploading">
-              ↑ Uploading: {uploadProgress}%
+          {!isSyncing && isStreaming && (
+            <span className="streaming">
+              ↑ Streaming
             </span>
           )}
-
+          {lastSyncTime && !isSyncing && !isStreaming && (
+            <span className="synced">
+              ✓ Synced
+            </span>
+          )}
         </div>
       </div>
       
       <div className={`main-content ${isTheaterMode ? 'theater-mode' : ''}`}>
         <div className="video-container">
-          {videoUrl ? (
+          {isHost ? (
+            // Host view
             <div className="video-wrapper">
-              <video
-                ref={videoRef}
-                src={getAbsoluteVideoUrl(videoUrl)}
-                controls={isHost}
-                style={{ objectFit: videoFit }}
-                onPlay={isHost ? handlePlay : null}
-                onPause={isHost ? handlePause : null}
-                onSeeked={isHost ? handleSeek : null}
-                onLoadedMetadata={handleMetadataLoaded}
-                className={!isHost ? "viewer-video" : "host-video"}
-                playsInline
-              />
-              
-              {/* Video progress overlay for host */}
-              {isHost && isUploading && totalDuration > 0 && (
-                <div 
-                  className="video-progress-overlay" 
-                  style={{ width: `${(availableDuration / totalDuration) * 100}%` }}
-                ></div>
-              )}
-              
-              {/* Upload progress indicator */}
-              {isUploading && (
-                <div className="streaming-indicator">
-                  Uploading {uploadProgress}%
-                </div>
-              )}
-              
-              {/* Warning when approaching boundary */}
-              {approachingBoundary && (
-                <div className="approaching-boundary">
-                  Approaching end of available content ({formatTime(availableDuration)})
-                </div>
-              )}
-              
-              {/* Warning when trying to seek beyond available content */}
-              {showSeekWarning && (
-                <div className="seek-warning">
-                  Cannot seek beyond uploaded content
-                </div>
-              )}
-              
-
-              {/* Viewer controls */}
-              {!isHost && (
-                <div className="viewer-controls">
-                 
-                  <button className="full-screen-control-button theater-button" onClick={toggleTheaterMode}>
-                    {isTheaterMode ? 'Exit Theater' : 'Theater Mode'}
-                  </button>
-                  <button className="full-screen-control-button fullscreen-button" onClick={() => {
-                    if (videoRef.current.requestFullscreen) {
-                      videoRef.current.requestFullscreen();
-                    } else if (videoRef.current.webkitRequestFullscreen) {
-                      videoRef.current.webkitRequestFullscreen();
-                    } else if (videoRef.current.msRequestFullscreen) {
-                      videoRef.current.msRequestFullscreen();
-                    }
-                  }}>
-                    Fullscreen
-                  </button>
-                </div>
-              )}
-              
-              {!isHost && (
-                <div className="viewer-message">
-                  <p>Only the host can control playback</p>
-                </div>
-              )}
-              
-              {/* Host controls */}
-              {isHost && (
-                <div className="host-controls">
-                  <button className="control-button theater-button" onClick={toggleTheaterMode}>
-                    {isTheaterMode ? 'Exit Theater' : 'Theater Mode'}
-                  </button>
-                  <button onClick={handleShareVideo} className="share-button">
-                    Re-share Video
+              {!isStreaming ? (
+                // Show streaming controls before streaming starts
+                <div className="streaming-controls">
+                  <h3>Stream your selected video</h3>
+                  <p className="file-info">
+                    File: {localStorage.getItem('hostFileName') || 'No file selected'}
+                  </p>
+                  
+                  <button 
+                    onClick={startStreaming} 
+                    className="primary-button"
+                    disabled={streamLoading || !fileUrlRef.current}
+                  >
+                    {streamLoading ? 'Starting Stream...' : 'Start Streaming'}
                   </button>
                   
-                  {uploadComplete && (
-                    <button 
-                      onClick={handleDeleteVideo} 
-                      className="delete-button"
-                      disabled={isDeletingVideo}
-                    >
-                      {isDeletingVideo ? 'Deleting...' : 'Delete Video'}
-                    </button>
-                  )}
+                  {streamError && <p className="error-message">{streamError}</p>}
+                  
+                  <p className="hint">
+                    Click to start streaming the selected file to viewers
+                  </p>
                 </div>
+              ) : (
+                // Show video player when streaming
+                <>
+                  <video
+                    ref={hostVideoRef}
+                    controls={true}
+                    style={{ objectFit: videoFit }}
+                    className="host-video"
+                    playsInline
+                    onPlay={handlePlay}
+                    onPause={handlePause}
+                    onSeeked={handleSeek}
+                    onTimeUpdate={() => {
+                      // Optionally send periodic time updates
+                      if (socketRef.current && !processingRemoteUpdate) {
+                        // Throttle updates to avoid overloading (every 2 seconds)
+                        const now = Date.now();
+                        if (!lastSentState.current || 
+                            now - lastSentState.current.timestamp > 2000) {
+                          socketRef.current.emit('videoStateChange', {
+                            roomId,
+                            videoState: {
+                              isPlaying: !hostVideoRef.current.paused,
+                              currentTime: hostVideoRef.current.currentTime
+                            }
+                          });
+                          
+                          lastSentState.current = {
+                            timestamp: now,
+                            isPlaying: !hostVideoRef.current.paused,
+                            currentTime: hostVideoRef.current.currentTime
+                          };
+                        }
+                      }
+                    }}
+                  />
+                  
+                  <div className="host-controls">
+                    <div className="connection-info">
+                      <p className="streaming-status">
+                        Streaming to {Object.keys(peerConnections).length} viewer(s)
+                      </p>
+                    </div>
+                    
+                    <div className="control-buttons">
+                      <button onClick={toggleTheaterMode} className="control-button theater-button">
+                        {isTheaterMode ? 'Exit Theater' : 'Theater Mode'}
+                      </button>
+                      <button onClick={stopStreaming} className="control-button stop-button">
+                        Stop Streaming
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           ) : (
-            <div className="waiting-for-video">
-              {videoDeleted ? (
-                <div className="video-deleted-message">
-                  <p>Video has been deleted</p>
-                  {isHost && (
-                    <p className="upload-prompt">You can upload a new video to continue</p>
-                  )}
+            // Viewer view
+            <div className="video-wrapper">
+              {videoUrl && videoUrl.startsWith('streaming:') ? (
+                // Show video when host is streaming
+                <>
+                  <video
+                    ref={viewerVideoRef}
+                    controls={false}
+                    style={{ objectFit: videoFit }}
+                    className="viewer-video"
+                    playsInline
+                  />
+                  <div className="viewer-controls">
+                    <button onClick={toggleTheaterMode} className="control-button theater-button">
+                      {isTheaterMode ? 'Exit Theater' : 'Theater Mode'}
+                    </button>
+                    <button 
+                      className="control-button fullscreen-button" 
+                      onClick={() => {
+                        if (viewerVideoRef.current && viewerVideoRef.current.requestFullscreen) {
+                          viewerVideoRef.current.requestFullscreen();
+                        }
+                      }}
+                    >
+                      Fullscreen
+                    </button>
+                  </div>
+                  <div className="viewer-message">
+                    <p>Streaming from host - only the host can control playback</p>
+                  </div>
+                </>
+              ) : videoUrl && videoUrl.startsWith('local:') ? (
+                // Host has a file but hasn't started streaming yet
+                <div className="waiting-for-video">
+                  <p>Host has selected: {videoUrl.replace('local:', '')}</p>
+                  <p>Waiting for host to start streaming...</p>
                 </div>
               ) : (
-                <>
-                  <p>Waiting for host to share a video...</p>
-                  <p className="small">Server URL: {SERVER_URL}</p>
-                  {isUploading && (
-                    <div className="progress-container">
-                      <div className="progress-bar" style={{ width: `${uploadProgress}%` }}></div>
-                      <p>{uploadProgress}% Uploaded</p>
-                    </div>
-                  )}
-                </>
+                // No video available yet
+                <div className="waiting-for-video">
+                  <p>Waiting for host to select a video...</p>
+                </div>
               )}
             </div>
           )}

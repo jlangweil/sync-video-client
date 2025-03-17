@@ -7,16 +7,18 @@ import './Home.css';
 const getServerUrl = () => {
   const protocol = window.location.protocol;
   const hostname = window.location.hostname;
-  const port = 3000; // Your server port
   
-  return `${protocol}//${hostname}:${port}`;
+  // Check if we're in local development or production
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  
+  // Only add port for localhost; in production the hostname already includes everything needed
+  const port = isLocalhost ? ':10000' : '';
+  
+  return `${protocol}//${hostname}${port}`;
 };
 
 // Use this server URL for API calls
 const SERVER_URL = getServerUrl();
-
-// Size of each chunk in bytes (5MB)
-const CHUNK_SIZE = 5 * 1024 * 1024;
 
 function Home() {
   const [file, setFile] = useState(null);
@@ -25,7 +27,6 @@ function Home() {
   const [roomId, setRoomId] = useState('');
   const [username, setUsername] = useState('');
   const [joining, setJoining] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [creatingRoom, setCreatingRoom] = useState(false);
   
   const navigate = useNavigate();
@@ -33,65 +34,6 @@ function Home() {
   const handleFileChange = (e) => {
     setFile(e.target.files[0]);
     setError('');
-  };
-
-  // Function to handle chunked file upload
-  const uploadFileInChunks = async (file, roomId, videoId) => {
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-    let uploadedChunks = 0;
-    
-    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-      const start = chunkIndex * CHUNK_SIZE;
-      const end = Math.min(file.size, start + CHUNK_SIZE);
-      const chunk = file.slice(start, end);
-      
-      // Create a new FormData for each chunk
-      const formData = new FormData();
-      formData.append('chunk', chunk, file.name);
-      
-      try {
-        const response = await axios.post(
-          `${SERVER_URL}/upload-chunk?videoId=${videoId}&roomId=${roomId}&chunkIndex=${chunkIndex}&totalChunks=${totalChunks}`,
-          formData,
-          {
-            headers: {
-              'Content-Type': 'multipart/form-data'
-            },
-            onUploadProgress: (progressEvent) => {
-              // Calculate progress for this chunk
-              const percentChunk = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-              
-              // Calculate overall progress across all chunks
-              const overallProgress = Math.round(
-                ((chunkIndex * CHUNK_SIZE + progressEvent.loaded) * 100) / file.size
-              );
-              
-              setUploadProgress(overallProgress);
-            }
-          }
-        );
-        
-        uploadedChunks++;
-        
-        // Check if this was the last chunk
-        if (chunkIndex === totalChunks - 1) {
-          return {
-            success: true,
-            videoUrl: response.data.videoUrl,
-            message: 'Upload complete'
-          };
-        }
-      } catch (error) {
-        console.error(`Error uploading chunk ${chunkIndex}:`, error);
-        throw new Error(`Failed to upload chunk ${chunkIndex}: ${error.message}`);
-      }
-    }
-    
-    return {
-      success: true,
-      message: 'Upload in progress',
-      progress: Math.round((uploadedChunks / totalChunks) * 100)
-    };
   };
 
   const handleUpload = async (e) => {
@@ -107,46 +49,41 @@ function Home() {
       return;
     }
 
-    console.log('Uploading file:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(2) + 'MB', 'Type:', file.type);
+    console.log('Selected file:', file.name, 'Size:', (file.size / 1024 / 1024).toFixed(2) + 'MB', 'Type:', file.type);
 
     setLoading(true);
     setError('');
-    setUploadProgress(0);
     setCreatingRoom(true);
     
     try {
-      // Step 1: Create a room and get videoId
+      // Step 1: Create a room and get roomId
       console.log('Creating room...');
       const roomResponse = await axios.post(`${SERVER_URL}/create-room`);
       
-      const { roomId, videoId } = roomResponse.data;
-      console.log(`Room created: ${roomId}, videoId: ${videoId}`);
+      const { roomId } = roomResponse.data;
+      console.log(`Room created: ${roomId}`);
       
       // Store user info right away so we can navigate to the room
       localStorage.setItem('username', username);
       localStorage.setItem('isHost', 'true');
       
-      // No videoUrl yet - it will be sent via socket when chunks start uploading
-      localStorage.removeItem('videoUrl');
+      // Store file info in localStorage
+      // Note: We can't store the actual file in localStorage, but we'll store metadata
+      localStorage.setItem('hostFileName', file.name);
+      localStorage.setItem('hostFileType', file.type);
+      localStorage.setItem('hostFileSize', file.size.toString());
+      
+      // Create a file URL that can be accessed in the Room component
+      const fileUrl = URL.createObjectURL(file);
+      sessionStorage.setItem('hostFileUrl', fileUrl);
       
       setCreatingRoom(false);
       
-      // Step 2: Start uploading the file in chunks
-      // We'll navigate to the room first and continue the upload in the background
+      // Navigate to the room where WebRTC streaming will be set up
       navigate(`/room/${roomId}`);
       
-      // Step 3: Begin uploading chunks
-      // This happens after navigation, but we start it here
-      uploadFileInChunks(file, roomId, videoId)
-        .then(result => {
-          console.log('Upload result:', result);
-        })
-        .catch(err => {
-          console.error('Upload failed:', err);
-        });
-      
     } catch (err) {
-      console.error('Error starting upload:', err);
+      console.error('Error creating room:', err);
       setCreatingRoom(false);
       setLoading(false);
       
@@ -214,7 +151,7 @@ function Home() {
             </div>
             
             <div className="form-group file-input">
-              <label htmlFor="video">Upload Video:</label>
+              <label htmlFor="video">Select Video to Stream:</label>
               <input
                 type="file"
                 id="video"
@@ -231,8 +168,7 @@ function Home() {
             
             {loading && (
               <div className="progress-container">
-                <div className="progress-bar" style={{ width: `${uploadProgress}%` }}></div>
-                <p>{creatingRoom ? 'Creating room...' : `${uploadProgress}% Uploaded`}</p>
+                <p>{creatingRoom ? 'Creating room...' : 'Processing...'}</p>
               </div>
             )}
             
@@ -245,7 +181,8 @@ function Home() {
             </button>
             
             <p className="info-text">
-              The video will continue uploading after you enter the room. Others can join and start watching immediately as it uploads.
+              The video will stream directly from your device to your viewers. 
+              No uploading necessary!
             </p>
           </form>
         </div>

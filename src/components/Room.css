@@ -545,6 +545,150 @@
 .theater-button {
   margin-right: 5px;
 }
+
+/* Streaming controls */
+.streaming-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 2rem;
+}
+
+.streaming-controls h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 1.5rem;
+  color: white;
+}
+
+.file-info {
+  margin-bottom: 1.5rem;
+  font-size: 1rem;
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.streaming-controls .primary-button {
+  background-color: #e74c3c;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 4px;
+  font-size: 1.2rem;
+  cursor: pointer;
+  margin-bottom: 1rem;
+  transition: background-color 0.2s;
+}
+
+.streaming-controls .primary-button:hover {
+  background-color: #c0392b;
+}
+
+.streaming-controls .primary-button:disabled {
+  background-color: #95a5a6;
+  cursor: not-allowed;
+}
+
+.hint {
+  opacity: 0.7;
+  font-size: 0.9rem;
+  text-align: center;
+  margin-top: 1rem;
+}
+
+.streaming-status {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background-color: rgba(52, 152, 219, 0.8);
+  color: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.streaming-status:before {
+  content: '';
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: white;
+  animation: pulse 1.5s infinite;
+}
+
+.streaming {
+  color: #3498db;
+  animation: pulse 1s infinite;
+}
+
+.stop-button {
+  background-color: #e74c3c;
+  color: white;
+  margin-left: 10px;
+}
+
+.stop-button:hover {
+  background-color: #c0392b;
+}
+
+.error-message {
+  color: #e74c3c;
+  background-color: rgba(231, 76, 60, 0.2);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+/* Theater mode enhancements for streaming */
+.theater-mode .streaming-controls {
+  height: 100vh;
+}
+
+.theater-mode .streaming-status {
+  right: 360px; /* Adjust based on sidebar width */
+}
+
+/* Viewer video styles */
+.viewer-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .streaming-controls {
+    padding: 1rem;
+  }
+  
+  .streaming-controls h3 {
+    font-size: 1.2rem;
+  }
+  
+  .file-info {
+    font-size: 0.9rem;
+  }
+  
+  .streaming-controls .primary-button {
+    font-size: 1rem;
+    padding: 10px 20px;
+  }
+}
   
   @media (max-width: 768px) {
     .main-content {
