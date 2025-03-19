@@ -9,8 +9,8 @@ function App() {
     <Router>
       <div className="app-container">
         <header>
-          <h1>SyncView</h1>
-          <p>Watch videos together in perfect sync</p>
+          <h1>JoshTV</h1>
+          <p>Morristown Movie Meetup Theatre</p>
         </header>
         <main>
           <Routes>
@@ -19,7 +19,7 @@ function App() {
           </Routes>
         </main>
         <footer>
-          <p>© 2025 SyncView</p>
+          <p>© 2025 JEL</p>
         </footer>
       </div>
     </Router>
