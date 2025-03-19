@@ -39,6 +39,11 @@ function Room() {
   const [streamLoading, setStreamLoading] = useState(false);
   const [streamError, setStreamError] = useState('');
   const [hostCanWatch, setHostCanWatch] = useState(false);
+  const [connectedViewers, setConnectedViewers] = useState([]);
+  const [viewerStats, setViewerStats] = useState({});
+  const [bufferPercentage, setBufferPercentage] = useState(0);
+  const [playbackTime, setPlaybackTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
   
   // WebRTC state
   const [peerConnections, setPeerConnections] = useState({});
@@ -72,6 +77,88 @@ function Room() {
       }
     }, 100);
   };
+
+  useEffect(() => {
+    if (!isHost && viewerVideoRef.current && viewerVideoRef.current.srcObject) {
+      const video = viewerVideoRef.current;
+      
+      // When metadata is loaded, get duration
+      const handleMetadata = () => {
+        if (video.duration && !isNaN(video.duration)) {
+          setVideoDuration(video.duration);
+        }
+      };
+      
+      // Track time updates
+      const handleTimeUpdate = () => {
+        setPlaybackTime(video.currentTime);
+        
+        // Estimate buffer based on playback position
+        // For WebRTC streams, we can't access traditional buffered property reliably
+        // Instead, estimate based on what's been played so far (assuming no seeking)
+        const percentage = Math.min(Math.round((video.currentTime / (videoDuration || 100)) * 100), 100);
+        setBufferPercentage(percentage);
+      };
+      
+      video.addEventListener('loadedmetadata', handleMetadata);
+      video.addEventListener('timeupdate', handleTimeUpdate);
+      
+      return () => {
+        video.removeEventListener('loadedmetadata', handleMetadata);
+        video.removeEventListener('timeupdate', handleTimeUpdate);
+      };
+    }
+  }, [isHost, viewerVideoRef.current, viewerVideoRef.current?.srcObject, videoDuration]);
+  
+  // Additional tracking for direct communication with host about playback position
+  useEffect(() => {
+    // Ask host for duration when connection is established
+    if (!isHost && Object.keys(peerConnections).length > 0) {
+      const hostPeer = Object.values(peerConnections)[0];
+      if (hostPeer && hostPeer.connected) {
+        try {
+          // Request video duration from host
+          hostPeer.send(JSON.stringify({
+            type: 'request-duration'
+          }));
+          
+          // Setup listener for host responses
+          const handleData = (data) => {
+            try {
+              const message = JSON.parse(data.toString());
+              if (message.type === 'video-duration') {
+                setVideoDuration(message.duration);
+              } else if (message.type === 'playback-position') {
+                // Update our buffer estimate based on host's position
+                const percentage = Math.min(Math.round((message.position / (message.duration || 100)) * 100), 100);
+                setBufferPercentage(percentage);
+              }
+            } catch (e) {
+              console.error('Error parsing peer message:', e);
+            }
+          };
+          
+          hostPeer.on('data', handleData);
+          
+          // Request updates periodically
+          const interval = setInterval(() => {
+            if (hostPeer.connected) {
+              hostPeer.send(JSON.stringify({
+                type: 'request-position'
+              }));
+            }
+          }, 3000);
+          
+          return () => {
+            clearInterval(interval);
+            hostPeer.off('data', handleData);
+          };
+        } catch (err) {
+          console.error('Error setting up data channel:', err);
+        }
+      }
+    }
+  }, [isHost, peerConnections]);
   
   // Initialize socket and room
   useEffect(() => {
@@ -400,6 +487,80 @@ function Room() {
     peer.on('close', () => {
       console.log(`Peer connection to ${userId} closed`);
     });
+
+    // Add these event handlers
+  peer.on('connect', () => {
+    console.log(`Peer ${userId} connected`);
+    setConnectedViewers(prev => [...prev.filter(id => id !== userId), userId]);
+    
+    // Initial stats entry
+    setViewerStats(prev => ({
+      ...prev,
+      [userId]: {
+        buffering: false,
+        downloadSpeed: 0,
+        quality: 'connecting'
+      }
+    }));
+    
+    // Send ready message to viewers
+    if (isHost) {
+      peer.send(JSON.stringify({
+        type: 'host-ready',
+        timestamp: Date.now()
+      }));
+    }
+   });
+
+   if (isHost) {
+    peer.on('data', (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        
+        if (message.type === 'request-duration' && hostVideoRef.current) {
+          peer.send(JSON.stringify({
+            type: 'video-duration',
+            duration: hostVideoRef.current.duration
+          }));
+        }
+        
+        if (message.type === 'request-position' && hostVideoRef.current) {
+          peer.send(JSON.stringify({
+            type: 'playback-position',
+            position: hostVideoRef.current.currentTime,
+            duration: hostVideoRef.current.duration
+          }));
+        }
+      } catch (e) {
+        console.error('Error handling peer message:', e);
+      }
+    });
+  }
+
+   // Track data channel messages for stats
+   peer.on('data', (data) => {
+    try {
+      const message = JSON.parse(data.toString());
+      
+      if (message.type === 'viewer-stats') {
+        setViewerStats(prev => ({
+          ...prev,
+          [userId]: {
+            ...prev[userId],
+            buffering: message.buffering,
+            downloadSpeed: message.downloadSpeed,
+            quality: message.quality
+          }
+        }));
+      }
+      
+      if (message.type === 'viewer-ready') {
+        addSystemMessage(`${users.find(u => u.id === userId)?.username || 'A viewer'} is ready to watch`);
+      }
+    } catch (e) {
+      console.error('Error parsing peer message:', e);
+    }
+  });
     
     // For host: add the stream to the peer connection
     if (isHost && localStreamRef.current) {
@@ -527,6 +688,30 @@ const startStreaming = async () => {
     return null;
   }
 };
+
+const sendViewerStats = () => {
+  if (!isHost && viewerVideoRef.current && Object.keys(peerConnections).length > 0) {
+    const hostPeer = Object.values(peerConnections)[0];
+    
+    const stats = {
+      type: 'viewer-stats',
+      buffering: viewerVideoRef.current.buffered.length === 0 || 
+                 viewerVideoRef.current.buffered.end(0) < viewerVideoRef.current.currentTime + 5,
+      timestamp: Date.now()
+    };
+    
+    if (hostPeer && hostPeer.send) {
+      hostPeer.send(JSON.stringify(stats));
+    }
+  }
+};
+
+useEffect(() => {
+  if (!isHost && isStreaming) {
+    const statInterval = setInterval(sendViewerStats, 3000);
+    return () => clearInterval(statInterval);
+  }
+}, [isHost, isStreaming]);
 
 // Also update your stopStreaming function
 const stopStreaming = () => {
@@ -713,21 +898,18 @@ const stopStreaming = () => {
           </button>
         </div>
         <div className="sync-status">
-          {isSyncing && (
-            <span className="syncing">
-              ⟳ Syncing...
-            </span>
-          )}
-          {!isSyncing && isStreaming && (
+          {isHost && isStreaming ? (
             <span className="streaming">
               ↑ Streaming
             </span>
-          )}
-          {lastSyncTime && !isSyncing && !isStreaming && (
-            <span className="synced">
-              ✓ Synced
+          ) : (!isHost && videoUrl && videoUrl.startsWith('streaming:')) ? (
+            <span className="buffer-indicator">
+              Buffer: {bufferPercentage}%
+              <div className="buffer-bar">
+                <div className="buffer-progress" style={{ width: `${bufferPercentage}%` }}></div>
+              </div>
             </span>
-          )}
+          ) : null}
         </div>
       </div>
       
@@ -811,6 +993,30 @@ const stopStreaming = () => {
                       </button>
                     </div>
                   </div>
+
+                  <div className="viewer-stats-panel">
+                    <h4>Viewer Stats</h4>
+                    {connectedViewers.length === 0 ? (
+                      <p>No viewers connected yet</p>
+                    ) : (
+                      <ul>
+                        {connectedViewers.map(viewerId => {
+                          const viewer = users.find(u => u.id === viewerId);
+                          const stats = viewerStats[viewerId] || {};
+                          return (
+                            <li key={viewerId} className={`viewer-stat ${stats.buffering ? 'buffering' : ''}`}>
+                              {viewer?.username || 'Unknown viewer'}: 
+                              {stats.buffering ? ' Buffering...' : ' Streaming'} 
+                              <span className={`connection-quality ${stats.quality || 'unknown'}`}>
+                                ({stats.quality || 'connecting'})
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+
                 </>
               )}
             </div>
@@ -827,6 +1033,13 @@ const stopStreaming = () => {
                     className="viewer-video"
                     playsInline
                   />
+                  <div className="stream-status">
+                    {!viewerVideoRef.current || !viewerVideoRef.current.srcObject ? (
+                      <div className="connecting-indicator">Connecting to host stream...</div>
+                    ) : viewerVideoRef.current.readyState < 3 ? (
+                      <div className="buffering-indicator">Buffering stream...</div>
+                    ) : null}
+                  </div>
                   <div className="viewer-controls">
                     <button onClick={toggleTheaterMode} className="control-button theater-button">
                       {isTheaterMode ? 'Exit Theater' : 'Theater Mode'}

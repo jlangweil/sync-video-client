@@ -670,6 +670,171 @@
   object-fit: contain;
 }
 
+/* Viewer Stats Panel */
+.viewer-stats-panel {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 10px;
+  border-radius: 5px;
+  max-width: 250px;
+  z-index: 20;
+}
+
+.viewer-stats-panel h4 {
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: white;
+}
+
+.viewer-stats-panel ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+.viewer-stat {
+  font-size: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: space-between;
+}
+
+.viewer-stat.buffering {
+  color: #f39c12;
+}
+
+.connection-quality {
+  margin-left: 8px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+}
+
+.connection-quality.good {
+  background-color: #2ecc71;
+  color: white;
+}
+
+.connection-quality.fair {
+  background-color: #f39c12;
+  color: white;
+}
+
+.connection-quality.poor {
+  background-color: #e74c3c;
+  color: white;
+}
+
+.connection-quality.unknown, 
+.connection-quality.connecting {
+  background-color: #95a5a6;
+  color: white;
+}
+
+/* Stream Status Indicators */
+.stream-status {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 20;
+}
+
+.connecting-indicator, 
+.buffering-indicator {
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+}
+
+.connecting-indicator:before, 
+.buffering-indicator:before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+  animation: pulse 1.5s infinite;
+}
+
+.connecting-indicator:before {
+  background-color: #3498db;
+}
+
+.buffering-indicator:before {
+  background-color: #f39c12;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.4; }
+  50% { opacity: 1; }
+  100% { opacity: 0.4; }
+}
+
+/* Theater mode adjustments */
+.theater-mode .viewer-stats-panel {
+  top: 50px;
+  left: 20px;
+}
+
+.theater-mode .stream-status {
+  top: 50px;
+  right: 20px;
+}
+
+.buffering {
+  color: #3498db;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.buffering:before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #3498db;
+  animation: pulse 1.5s infinite;
+}
+
+.buffer-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background-color: rgba(0, 0, 0, 0.6);
+  padding: 5px 10px;
+  border-radius: 4px;
+  color: white;
+  font-size: 0.8rem;
+}
+
+.buffer-bar {
+  width: 100px;
+  height: 6px;
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  margin-top: 3px;
+  overflow: hidden;
+}
+
+.buffer-progress {
+  height: 100%;
+  background-color: #3498db;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .streaming-controls {
