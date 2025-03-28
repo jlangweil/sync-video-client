@@ -297,7 +297,7 @@ function Room() {
         setConnectionStatus('connecting');
         
         const peer = new Peer({
-          initiator: false,
+          initiator,
           trickle: true,
           config: {
             iceServers: [
@@ -305,9 +305,37 @@ function Room() {
               { urls: 'stun:stun1.l.google.com:19302' },
               { urls: 'stun:stun2.l.google.com:19302' },
               { urls: 'stun:stun3.l.google.com:19302' },
-              { urls: 'stun:stun4.l.google.com:19302' }
+              { urls: 'stun:stun4.l.google.com:19302' },
+              // Add free TURN servers - this is critical for connections across restrictive networks
+              {
+                urls: 'turn:openrelay.metered.ca:80',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+              },
+              {
+                urls: 'turn:openrelay.metered.ca:443',
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+              }
             ]
+          },
+          // Lower video quality to improve reliability
+          sdpTransform: (sdp) => {
+            // Reduce bandwidth requirements
+            return sdp.replace(/b=AS:([0-9]+)/g, 'b=AS:500');
           }
+        });
+
+        peer._pc.addEventListener('iceconnectionstatechange', () => {
+          console.log('ICE Connection State:', peer._pc.iceConnectionState);
+          if (peer._pc.iceConnectionState === 'failed') {
+            addSystemMessage('Connection failed - network incompatible. Try a different network.');
+          }
+        });
+
+        peer.on('error', (err) => {
+          console.error('Detailed peer error:', err);
+          addSystemMessage(`Connection error (${err.code}): ${err.message}`);
         });
         
         peer.on('signal', (data) => {
