@@ -297,7 +297,6 @@ function Room() {
         setConnectionStatus('connecting');
         
         const peer = new Peer({
-          initiator,
           trickle: true,
           config: {
             iceServers: [
