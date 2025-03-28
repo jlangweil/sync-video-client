@@ -38,12 +38,11 @@ function Room() {
   const [pendingViewers, setPendingViewers] = useState([]);
   const [streamLoading, setStreamLoading] = useState(false);
   const [streamError, setStreamError] = useState('');
-  const [hostCanWatch, setHostCanWatch] = useState(false);
-  const [connectedViewers, setConnectedViewers] = useState([]);
-  const [viewerStats, setViewerStats] = useState({});
   const [bufferPercentage, setBufferPercentage] = useState(0);
   const [playbackTime, setPlaybackTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
+  const [preBuffering, setPreBuffering] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('disconnected'); // 'disconnected', 'connecting', 'buffering', 'ready'
   
   // WebRTC state
   const [peerConnections, setPeerConnections] = useState({});
@@ -77,88 +76,6 @@ function Room() {
       }
     }, 100);
   };
-
-  useEffect(() => {
-    if (!isHost && viewerVideoRef.current && viewerVideoRef.current.srcObject) {
-      const video = viewerVideoRef.current;
-      
-      // When metadata is loaded, get duration
-      const handleMetadata = () => {
-        if (video.duration && !isNaN(video.duration)) {
-          setVideoDuration(video.duration);
-        }
-      };
-      
-      // Track time updates
-      const handleTimeUpdate = () => {
-        setPlaybackTime(video.currentTime);
-        
-        // Estimate buffer based on playback position
-        // For WebRTC streams, we can't access traditional buffered property reliably
-        // Instead, estimate based on what's been played so far (assuming no seeking)
-        const percentage = Math.min(Math.round((video.currentTime / (videoDuration || 100)) * 100), 100);
-        setBufferPercentage(percentage);
-      };
-      
-      video.addEventListener('loadedmetadata', handleMetadata);
-      video.addEventListener('timeupdate', handleTimeUpdate);
-      
-      return () => {
-        video.removeEventListener('loadedmetadata', handleMetadata);
-        video.removeEventListener('timeupdate', handleTimeUpdate);
-      };
-    }
-  }, [isHost, viewerVideoRef.current, viewerVideoRef.current?.srcObject, videoDuration]);
-  
-  // Additional tracking for direct communication with host about playback position
-  useEffect(() => {
-    // Ask host for duration when connection is established
-    if (!isHost && Object.keys(peerConnections).length > 0) {
-      const hostPeer = Object.values(peerConnections)[0];
-      if (hostPeer && hostPeer.connected) {
-        try {
-          // Request video duration from host
-          hostPeer.send(JSON.stringify({
-            type: 'request-duration'
-          }));
-          
-          // Setup listener for host responses
-          const handleData = (data) => {
-            try {
-              const message = JSON.parse(data.toString());
-              if (message.type === 'video-duration') {
-                setVideoDuration(message.duration);
-              } else if (message.type === 'playback-position') {
-                // Update our buffer estimate based on host's position
-                const percentage = Math.min(Math.round((message.position / (message.duration || 100)) * 100), 100);
-                setBufferPercentage(percentage);
-              }
-            } catch (e) {
-              console.error('Error parsing peer message:', e);
-            }
-          };
-          
-          hostPeer.on('data', handleData);
-          
-          // Request updates periodically
-          const interval = setInterval(() => {
-            if (hostPeer.connected) {
-              hostPeer.send(JSON.stringify({
-                type: 'request-position'
-              }));
-            }
-          }, 3000);
-          
-          return () => {
-            clearInterval(interval);
-            hostPeer.off('data', handleData);
-          };
-        } catch (err) {
-          console.error('Error setting up data channel:', err);
-        }
-      }
-    }
-  }, [isHost, peerConnections]);
   
   // Initialize socket and room
   useEffect(() => {
@@ -183,15 +100,12 @@ function Room() {
     // Initialize socket with dynamic server URL
     console.log('Connecting to socket server at:', SERVER_URL);
     socketRef.current = io(SERVER_URL, {
-      transports: ['websocket', 'polling'], // Try websocket first, fallback to polling
+      transports: ['websocket', 'polling'],
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
-      path: '/socket.io/', // Make sure this matches the server's path
-      secure: window.location.protocol === 'https:', // Important for HTTPS on Render
-      rejectUnauthorized: false, // Might be needed for development
-      extraHeaders: {
-        "Origin": window.location.origin // Explicitly set origin for CORS
-      }
+      timeout: 60000,
+      secure: window.location.protocol === 'https:',
+      path: '/socket.io/' // Make sure this matches the server's path
     });
     
     // Add connection logging
@@ -208,6 +122,19 @@ function Room() {
     
     socketRef.current.on('connect_error', (error) => {
       console.error('Socket connection error:', error);
+      addSystemMessage('Error connecting to server. Please refresh the page.');
+    });
+    
+    socketRef.current.on('reconnect', () => {
+      console.log('Socket reconnected');
+      addSystemMessage('Connection to server restored');
+      
+      // Re-join room after reconnection
+      socketRef.current.emit('joinRoom', {
+        roomId,
+        username: storedUsername,
+        isHost: storedIsHost
+      });
     });
     
     // Handle user joined
@@ -270,6 +197,15 @@ function Room() {
       }
     });
     
+    // Handle streaming about to start notification
+    socketRef.current.on('streamingAboutToStart', () => {
+      if (!isHost) {
+        setPreBuffering(true);
+        setConnectionStatus('buffering');
+        addSystemMessage('Host is preparing to start the stream, buffering...');
+      }
+    });
+    
     return () => {
       // Stop all tracks in the local stream
       if (localStreamRef.current) {
@@ -282,6 +218,10 @@ function Room() {
       Object.values(peersRef.current).forEach(peer => {
         if (peer && peer.destroy) {
           try {
+            // Clear ping interval if exists
+            if (peer._pingInterval) {
+              clearInterval(peer._pingInterval);
+            }
             peer.destroy();
           } catch (err) {
             console.error('Error destroying peer:', err);
@@ -354,13 +294,18 @@ function Room() {
       
       // If we don't have a peer yet, create one (as viewer)
       if (!peersRef.current[from]) {
+        setConnectionStatus('connecting');
+        
         const peer = new Peer({
           initiator: false,
           trickle: true,
           config: {
             iceServers: [
               { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:global.stun.twilio.com:3478' }
+              { urls: 'stun:stun1.l.google.com:19302' },
+              { urls: 'stun:stun2.l.google.com:19302' },
+              { urls: 'stun:stun3.l.google.com:19302' },
+              { urls: 'stun:stun4.l.google.com:19302' }
             ]
           }
         });
@@ -374,6 +319,19 @@ function Room() {
           });
         });
         
+        peer.on('connect', () => {
+          console.log('Connected to host!');
+          setConnectionStatus('connected');
+          addSystemMessage('Connected to host stream');
+          
+          // Send a ping immediately after connecting
+          try {
+            peer.send(JSON.stringify({ type: 'ping', time: Date.now() }));
+          } catch (err) {
+            console.error('Error sending initial ping:', err);
+          }
+        });
+        
         peer.on('stream', (stream) => {
           console.log('Viewer received stream from host!');
           
@@ -382,17 +340,65 @@ function Room() {
             viewerVideoRef.current.srcObject = stream;
             viewerVideoRef.current.play().catch(err => console.error('Error playing stream:', err));
           }
+          
+          // Set pre-buffering mode
+          setPreBuffering(true);
+          setConnectionStatus('buffering');
+        });
+        
+        peer.on('data', (data) => {
+          try {
+            const message = JSON.parse(data.toString());
+            if (message.type === 'ping') {
+              peer.send(JSON.stringify({ 
+                type: 'pong', 
+                pingTime: message.time,
+                readyState: viewerVideoRef.current ? viewerVideoRef.current.readyState : 0
+              }));
+            } else if (message.type === 'video-duration') {
+              setVideoDuration(message.duration);
+            } else if (message.type === 'playback-position') {
+              // Update our buffer estimate based on host's position
+              if (message.duration > 0) {
+                const percentage = Math.min(Math.round((message.position / message.duration) * 100), 100);
+                setBufferPercentage(percentage);
+              }
+            }
+          } catch (e) {
+            // Non-JSON data
+            console.log('Received non-JSON data');
+          }
         });
         
         peer.on('error', (err) => {
           console.error('Peer connection error:', err);
-          addSystemMessage('Connection error. Try refreshing the page.');
+          setConnectionStatus('error');
+          addSystemMessage(`Connection error: ${err.message}. Try refreshing the page.`);
         });
         
         peer.on('close', () => {
           console.log('Peer connection closed');
+          setConnectionStatus('disconnected');
           addSystemMessage('Connection to host closed.');
         });
+        
+        // Setup ping interval to keep connection alive
+        const pingInterval = setInterval(() => {
+          if (peer.connected) {
+            try {
+              peer.send(JSON.stringify({ 
+                type: 'ping', 
+                time: Date.now(), 
+                bufferState: viewerVideoRef.current ? viewerVideoRef.current.readyState : 0 
+              }));
+            } catch (err) {
+              console.error('Error sending ping:', err);
+            }
+          }
+        }, 5000);
+        
+        // Store interval for cleanup
+        peer._pingInterval = pingInterval;
         
         // Store the peer connection
         peersRef.current[from] = peer;
@@ -413,6 +419,7 @@ function Room() {
       const requestTimeout = setTimeout(() => {
         console.log('Viewer requesting stream from host');
         socketRef.current.emit('request-stream', { roomId });
+        setConnectionStatus('connecting');
       }, 2000);
       
       return () => {
@@ -424,6 +431,38 @@ function Room() {
       socketRef.current.off('webrtc-signal');
     };
   }, [socketRef.current, isHost, roomId, videoUrl]);
+  
+  // Monitor buffer progress for viewers
+  useEffect(() => {
+    if (!isHost && viewerVideoRef.current && viewerVideoRef.current.srcObject && preBuffering) {
+      console.log('Setting up buffer monitoring');
+      
+      const checkBufferStatus = () => {
+        const video = viewerVideoRef.current;
+        if (!video) return;
+        
+        // Check the readyState - 4 means HAVE_ENOUGH_DATA
+        const readyState = video.readyState;
+        console.log(`Video ready state: ${readyState}`);
+        
+        if (readyState >= 3) { // HAVE_FUTURE_DATA or better
+          console.log('Buffer seems good, ready to play');
+          setPreBuffering(false);
+          setConnectionStatus('ready');
+        }
+      };
+      
+      // Check buffer status every second
+      const bufferInterval = setInterval(checkBufferStatus, 1000);
+      
+      // Check immediately as well
+      checkBufferStatus();
+      
+      return () => {
+        clearInterval(bufferInterval);
+      };
+    }
+  }, [isHost, viewerVideoRef.current, viewerVideoRef.current?.srcObject, preBuffering]);
   
   // Handle pending viewers when streaming starts
   useEffect(() => {
@@ -440,6 +479,32 @@ function Room() {
       setPendingViewers([]);
     }
   }, [isHost, isStreaming, pendingViewers]);
+  
+  // Track playback progress for the host
+  useEffect(() => {
+    if (isHost && hostVideoRef.current && isStreaming) {
+      const updatePlaybackProgress = () => {
+        if (hostVideoRef.current) {
+          setPlaybackTime(hostVideoRef.current.currentTime);
+          
+          if (hostVideoRef.current.duration > 0) {
+            const percentage = Math.min(Math.round((hostVideoRef.current.currentTime / hostVideoRef.current.duration) * 100), 100);
+            setBufferPercentage(percentage);
+          }
+        }
+      };
+      
+      const progressInterval = setInterval(updatePlaybackProgress, 1000);
+      hostVideoRef.current.addEventListener('timeupdate', updatePlaybackProgress);
+      
+      return () => {
+        clearInterval(progressInterval);
+        if (hostVideoRef.current) {
+          hostVideoRef.current.removeEventListener('timeupdate', updatePlaybackProgress);
+        }
+      };
+    }
+  }, [isHost, hostVideoRef.current, isStreaming]);
   
   // Auto-scroll chat to bottom when new messages arrive
   useEffect(() => {
@@ -465,8 +530,20 @@ function Room() {
       config: {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' }
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:stun3.l.google.com:19302' },
+          { urls: 'stun:stun4.l.google.com:19302' }
         ]
+      },
+      sdpTransform: (sdp) => {
+        // Prioritize UDP and decrease video quality slightly for better reliability
+        return sdp.replace(/a=mid:(\d+)/g, (match, p1) => {
+          // Make audio come first (more important than video)
+          if (p1 === '0') return 'a=mid:1';
+          if (p1 === '1') return 'a=mid:0';
+          return match;
+        });
       }
     });
     
@@ -479,6 +556,78 @@ function Room() {
       });
     });
     
+    peer.on('connect', () => {
+      console.log(`Peer connection established with ${userId}!`);
+      
+      // If host, send initial data about the video
+      if (isHost && hostVideoRef.current) {
+        try {
+          peer.send(JSON.stringify({
+            type: 'video-duration',
+            duration: hostVideoRef.current.duration
+          }));
+          
+          peer.send(JSON.stringify({
+            type: 'playback-position',
+            position: hostVideoRef.current.currentTime,
+            duration: hostVideoRef.current.duration
+          }));
+        } catch (err) {
+          console.error('Error sending initial video data:', err);
+        }
+      }
+      
+      // Send a ping immediately after connecting
+      try {
+        peer.send(JSON.stringify({ type: 'ping', time: Date.now() }));
+      } catch (err) {
+        console.error('Error sending initial ping:', err);
+      }
+    });
+    
+    peer.on('data', (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        
+        if (message.type === 'ping') {
+          peer.send(JSON.stringify({ 
+            type: 'pong', 
+            pingTime: message.time 
+          }));
+          
+          // If host, also send current playback position
+          if (isHost && hostVideoRef.current) {
+            peer.send(JSON.stringify({
+              type: 'playback-position',
+              position: hostVideoRef.current.currentTime,
+              duration: hostVideoRef.current.duration
+            }));
+          }
+        } else if (message.type === 'pong') {
+          const latency = Date.now() - message.pingTime;
+          console.log(`Latency to ${userId}: ${latency}ms`);
+          
+          // If viewer sends buffer state, track it
+          if (message.bufferState) {
+            console.log(`Viewer buffer state: ${message.bufferState}`);
+          }
+        } else if (message.type === 'request-duration' && isHost && hostVideoRef.current) {
+          peer.send(JSON.stringify({
+            type: 'video-duration',
+            duration: hostVideoRef.current.duration
+          }));
+        } else if (message.type === 'request-position' && isHost && hostVideoRef.current) {
+          peer.send(JSON.stringify({
+            type: 'playback-position',
+            position: hostVideoRef.current.currentTime,
+            duration: hostVideoRef.current.duration
+          }));
+        }
+      } catch (e) {
+        console.error('Error parsing peer message:', e);
+      }
+    });
+    
     peer.on('error', (err) => {
       console.error('Peer connection error:', err);
       addSystemMessage(`Connection error with ${users.find(u => u.id === userId)?.username || 'a user'}`);
@@ -487,85 +636,25 @@ function Room() {
     peer.on('close', () => {
       console.log(`Peer connection to ${userId} closed`);
     });
-
-    // Add these event handlers
-  peer.on('connect', () => {
-    console.log(`Peer ${userId} connected`);
-    setConnectedViewers(prev => [...prev.filter(id => id !== userId), userId]);
-    
-    // Initial stats entry
-    setViewerStats(prev => ({
-      ...prev,
-      [userId]: {
-        buffering: false,
-        downloadSpeed: 0,
-        quality: 'connecting'
-      }
-    }));
-    
-    // Send ready message to viewers
-    if (isHost) {
-      peer.send(JSON.stringify({
-        type: 'host-ready',
-        timestamp: Date.now()
-      }));
-    }
-   });
-
-   if (isHost) {
-    peer.on('data', (data) => {
-      try {
-        const message = JSON.parse(data.toString());
-        
-        if (message.type === 'request-duration' && hostVideoRef.current) {
-          peer.send(JSON.stringify({
-            type: 'video-duration',
-            duration: hostVideoRef.current.duration
-          }));
-        }
-        
-        if (message.type === 'request-position' && hostVideoRef.current) {
-          peer.send(JSON.stringify({
-            type: 'playback-position',
-            position: hostVideoRef.current.currentTime,
-            duration: hostVideoRef.current.duration
-          }));
-        }
-      } catch (e) {
-        console.error('Error handling peer message:', e);
-      }
-    });
-  }
-
-   // Track data channel messages for stats
-   peer.on('data', (data) => {
-    try {
-      const message = JSON.parse(data.toString());
-      
-      if (message.type === 'viewer-stats') {
-        setViewerStats(prev => ({
-          ...prev,
-          [userId]: {
-            ...prev[userId],
-            buffering: message.buffering,
-            downloadSpeed: message.downloadSpeed,
-            quality: message.quality
-          }
-        }));
-      }
-      
-      if (message.type === 'viewer-ready') {
-        addSystemMessage(`${users.find(u => u.id === userId)?.username || 'A viewer'} is ready to watch`);
-      }
-    } catch (e) {
-      console.error('Error parsing peer message:', e);
-    }
-  });
     
     // For host: add the stream to the peer connection
     if (isHost && localStreamRef.current) {
       peer.addStream(localStreamRef.current);
     }
+    
+    // Add ping/pong to keep connections alive
+    const pingInterval = setInterval(() => {
+      if (peer.connected) {
+        try {
+          peer.send(JSON.stringify({ type: 'ping', time: Date.now() }));
+        } catch (err) {
+          console.error('Error sending ping:', err);
+        }
+      }
+    }, 5000); // ping every 5 seconds
+    
+    // Store interval for cleanup
+    peer._pingInterval = pingInterval;
     
     // Store the peer connection
     peersRef.current[userId] = peer;
@@ -574,202 +663,184 @@ function Room() {
     return peer;
   };
   
-// Add this to your state variables at the top of Room component
-const streamVideoRef = useRef(null); // Separate video element for streaming
-
-// Replace your startStreaming function with this version
-const startStreaming = async () => {
-  if (!fileUrlRef.current) {
-    setStreamError('No file selected');
-    return;
-  }
-  
-  setStreamLoading(true);
-  setStreamError('');
-  
-  try {
-    const fileName = localStorage.getItem('hostFileName');
-    console.log('Starting to stream file:', fileName);
+  // Start streaming the local video file to all viewers
+  const startStreaming = async () => {
+    if (!fileUrlRef.current) {
+      setStreamError('No file selected');
+      return;
+    }
     
-    // Create a hidden video element for streaming
-    const streamVideo = document.createElement('video');
-    streamVideo.src = fileUrlRef.current;
-    streamVideo.muted = true; // Mute this hidden element
+    setStreamLoading(true);
+    setStreamError('');
     
-    // Wait for the hidden video to be ready
-    await new Promise((resolve, reject) => {
-      streamVideo.onloadedmetadata = () => resolve();
-      streamVideo.onerror = (e) => reject(new Error('Error loading video file'));
-      streamVideo.load();
+    try {
+      const fileName = localStorage.getItem('hostFileName');
+      console.log('Starting to stream file:', fileName);
       
-      // Set a timeout in case loading takes too long
-      setTimeout(() => reject(new Error('Timeout loading video')), 10000);
+      // Notify viewers that we're about to start streaming
+      socketRef.current.emit('streamingAboutToStart', {
+        roomId
+      });
+      
+      // Create a hidden video element for streaming
+      const streamVideo = document.createElement('video');
+      streamVideo.src = fileUrlRef.current;
+      streamVideo.muted = true; // Mute this hidden element
+      
+      // Wait for the hidden video to be ready
+      await new Promise((resolve, reject) => {
+        streamVideo.onloadedmetadata = () => resolve();
+        streamVideo.onerror = (e) => reject(new Error('Error loading video file'));
+        streamVideo.load();
+        
+        // Set a timeout in case loading takes too long
+        setTimeout(() => reject(new Error('Timeout loading video')), 10000);
+      });
+      
+      // Start the hidden video playing
+      await streamVideo.play();
+      
+      // Capture the stream from the hidden video
+      const stream = streamVideo.captureStream();
+      localStreamRef.current = stream;
+      
+      // Update streaming status
+      setIsStreaming(true);
+      setStreamLoading(false);
+      
+      // Notify server about streaming status
+      socketRef.current.emit('streaming-status-update', {
+        roomId,
+        streaming: true,
+        fileName,
+        fileType: localStorage.getItem('hostFileType')
+      });
+      
+      // Update the video URL for the host
+      setVideoUrl(`streaming:${fileName}`);
+      
+      // Create a local viewer for the host
+      setTimeout(() => {
+        if (hostVideoRef.current) {
+          // Set the source of the host video to the original file
+          hostVideoRef.current.src = fileUrlRef.current;
+          hostVideoRef.current.muted = false;
+          hostVideoRef.current.load();
+          hostVideoRef.current.play().catch(err => {
+            console.error('Auto-play failed for host:', err);
+          });
+          setVideoDuration(streamVideo.duration);
+        }
+      }, 1000);
+      
+      // Create peer connections for all non-host users in the room
+      const viewerIds = users.filter(user => !user.isHost).map(user => user.id);
+      
+      for (const viewerId of viewerIds) {
+        try {
+          const peer = await createPeerConnection(viewerId, true);
+          // Add the stream to the peer
+          if (localStreamRef.current && peer.addStream) {
+            peer.addStream(localStreamRef.current);
+          }
+        } catch (err) {
+          console.error(`Error creating peer connection for viewer ${viewerId}:`, err);
+        }
+      }
+      
+      // Setup sync loop to match the host video with streaming video
+      const syncInterval = setInterval(() => {
+        if (streamVideo && hostVideoRef.current && !processingRemoteUpdate) {
+          // Sync the hidden streaming video with the host video
+          if (Math.abs(streamVideo.currentTime - hostVideoRef.current.currentTime) > 1) {
+            streamVideo.currentTime = hostVideoRef.current.currentTime;
+          }
+          
+          if (hostVideoRef.current.paused && !streamVideo.paused) {
+            streamVideo.pause();
+            handleVideoStateChange(false, streamVideo.currentTime);
+          } else if (!hostVideoRef.current.paused && streamVideo.paused) {
+            streamVideo.play();
+            handleVideoStateChange(true, streamVideo.currentTime);
+          }
+        }
+      }, 1000);
+      
+      // Store the interval ID for cleanup
+      window.syncIntervalId = syncInterval;
+      
+      addSystemMessage('Started streaming. Viewers can now watch.');
+      
+      return stream;
+    } catch (err) {
+      console.error('Error starting stream:', err);
+      setStreamError(`Error starting stream: ${err.message}`);
+      setStreamLoading(false);
+      return null;
+    }
+  };
+  
+  // Stop streaming
+  const stopStreaming = () => {
+    if (!isStreaming) return;
+    
+    // Clear sync interval
+    if (window.syncIntervalId) {
+      clearInterval(window.syncIntervalId);
+      window.syncIntervalId = null;
+    }
+    
+    // Stop all tracks in the local stream
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        track.stop();
+      });
+      localStreamRef.current = null;
+    }
+    
+    // Clear the host video element
+    if (hostVideoRef.current) {
+      hostVideoRef.current.pause();
+      hostVideoRef.current.src = '';
+      hostVideoRef.current.load();
+    }
+    
+    // Destroy all peer connections
+    Object.values(peersRef.current).forEach(peer => {
+      if (peer && peer.destroy) {
+        try {
+          // Clear ping interval
+          if (peer._pingInterval) {
+            clearInterval(peer._pingInterval);
+          }
+          peer.destroy();
+        } catch (err) {
+          console.error('Error destroying peer:', err);
+        }
+      }
     });
     
-    // Start the hidden video playing
-    await streamVideo.play();
+    // Reset peer connections
+    peersRef.current = {};
+    setPeerConnections({});
     
-    // Capture the stream from the hidden video
-    const stream = streamVideo.captureStream();
-    localStreamRef.current = stream;
-    
-    // Update streaming status
-    setIsStreaming(true);
-    setStreamLoading(false);
+    // Update state
+    setIsStreaming(false);
     
     // Notify server about streaming status
     socketRef.current.emit('streaming-status-update', {
       roomId,
-      streaming: true,
-      fileName,
-      fileType: localStorage.getItem('hostFileType')
+      streaming: false,
+      fileName: null,
+      fileType: null
     });
     
-    // Update the video URL for the host
-    setVideoUrl(`streaming:${fileName}`);
+    // Update the video URL
+    setVideoUrl('');
     
-    // Create peer connections for all non-host users in the room
-    const viewerIds = users.filter(user => !user.isHost).map(user => user.id);
-    
-    for (const viewerId of viewerIds) {
-      try {
-        const peer = await createPeerConnection(viewerId, true);
-        // Add the stream to the peer
-        if (localStreamRef.current && peer.addStream) {
-          peer.addStream(localStreamRef.current);
-        }
-      } catch (err) {
-        console.error(`Error creating peer connection for viewer ${viewerId}:`, err);
-      }
-    }
-    
-    // Create a local viewer for the host
-    setTimeout(() => {
-      if (hostVideoRef.current) {
-        // Set the source of the host video to the original file
-        hostVideoRef.current.src = fileUrlRef.current;
-        hostVideoRef.current.muted = false;
-        hostVideoRef.current.load();
-        hostVideoRef.current.play().catch(err => {
-          console.error('Auto-play failed for host:', err);
-        });
-        setHostCanWatch(true);
-      }
-    }, 1000);
-    
-    addSystemMessage('Started streaming. Viewers can now watch.');
-    
-    // Setup sync loop to match the host video with streaming video
-    const syncInterval = setInterval(() => {
-      if (streamVideo && hostVideoRef.current && !processingRemoteUpdate) {
-        // Sync the hidden streaming video with the host video
-        if (Math.abs(streamVideo.currentTime - hostVideoRef.current.currentTime) > 1) {
-          streamVideo.currentTime = hostVideoRef.current.currentTime;
-        }
-        
-        if (hostVideoRef.current.paused && !streamVideo.paused) {
-          streamVideo.pause();
-          handleVideoStateChange(false, streamVideo.currentTime);
-        } else if (!hostVideoRef.current.paused && streamVideo.paused) {
-          streamVideo.play();
-          handleVideoStateChange(true, streamVideo.currentTime);
-        }
-      }
-    }, 1000);
-    
-    // Store the interval ID for cleanup
-    window.syncIntervalId = syncInterval;
-    
-    return stream;
-  } catch (err) {
-    console.error('Error starting stream:', err);
-    setStreamError(`Error starting stream: ${err.message}`);
-    setStreamLoading(false);
-    return null;
-  }
-};
-
-const sendViewerStats = () => {
-  if (!isHost && viewerVideoRef.current && Object.keys(peerConnections).length > 0) {
-    const hostPeer = Object.values(peerConnections)[0];
-    
-    const stats = {
-      type: 'viewer-stats',
-      buffering: viewerVideoRef.current.buffered.length === 0 || 
-                 viewerVideoRef.current.buffered.end(0) < viewerVideoRef.current.currentTime + 5,
-      timestamp: Date.now()
-    };
-    
-    if (hostPeer && hostPeer.send) {
-      hostPeer.send(JSON.stringify(stats));
-    }
-  }
-};
-
-useEffect(() => {
-  if (!isHost && isStreaming) {
-    const statInterval = setInterval(sendViewerStats, 3000);
-    return () => clearInterval(statInterval);
-  }
-}, [isHost, isStreaming]);
-
-// Also update your stopStreaming function
-const stopStreaming = () => {
-  if (!isStreaming) return;
+    addSystemMessage('Stopped streaming.');
+  };
   
-  // Clear sync interval
-  if (window.syncIntervalId) {
-    clearInterval(window.syncIntervalId);
-    window.syncIntervalId = null;
-  }
-  
-  // Stop all tracks in the local stream
-  if (localStreamRef.current) {
-    localStreamRef.current.getTracks().forEach(track => {
-      track.stop();
-    });
-    localStreamRef.current = null;
-  }
-  
-  // Clear the host video element
-  if (hostVideoRef.current) {
-    hostVideoRef.current.pause();
-    hostVideoRef.current.src = '';
-    hostVideoRef.current.load();
-  }
-  
-  // Destroy all peer connections
-  Object.values(peersRef.current).forEach(peer => {
-    if (peer && peer.destroy) {
-      try {
-        peer.destroy();
-      } catch (err) {
-        console.error('Error destroying peer:', err);
-      }
-    }
-  });
-  
-  // Reset peer connections
-  peersRef.current = {};
-  setPeerConnections({});
-  
-  // Update state
-  setIsStreaming(false);
-  setHostCanWatch(false);
-  
-  // Notify server about streaming status
-  socketRef.current.emit('streaming-status-update', {
-    roomId,
-    streaming: false,
-    fileName: null,
-    fileType: null
-  });
-  
-  // Update the video URL
-  setVideoUrl('');
-  
-  addSystemMessage('Stopped streaming.');
-};
   // Helper to add system messages
   const addSystemMessage = (text) => {
     setMessages(prevMessages => [
@@ -898,13 +969,18 @@ const stopStreaming = () => {
           </button>
         </div>
         <div className="sync-status">
+          {isSyncing && (
+            <span className="syncing">
+              ⟳ Syncing...
+            </span>
+          )}
           {isHost && isStreaming ? (
             <span className="streaming">
               ↑ Streaming
             </span>
           ) : (!isHost && videoUrl && videoUrl.startsWith('streaming:')) ? (
             <span className="buffer-indicator">
-              Buffer: {bufferPercentage}%
+              Progress: {bufferPercentage}%
               <div className="buffer-bar">
                 <div className="buffer-progress" style={{ width: `${bufferPercentage}%` }}></div>
               </div>
@@ -945,10 +1021,11 @@ const stopStreaming = () => {
                 <>
                   <video
                     ref={hostVideoRef}
-                    controls={true}
+                    controls={true} // Give the host full video controls
                     style={{ objectFit: videoFit }}
                     className="host-video"
                     playsInline
+                    autoPlay
                     onPlay={handlePlay}
                     onPause={handlePause}
                     onSeeked={handleSeek}
@@ -993,30 +1070,31 @@ const stopStreaming = () => {
                       </button>
                     </div>
                   </div>
-
+                  
+                  {/* Viewer stats panel for host */}
                   <div className="viewer-stats-panel">
                     <h4>Viewer Stats</h4>
-                    {connectedViewers.length === 0 ? (
+                    {Object.keys(peerConnections).length === 0 ? (
                       <p>No viewers connected yet</p>
                     ) : (
                       <ul>
-                        {connectedViewers.map(viewerId => {
+                        {Object.keys(peerConnections).map(viewerId => {
                           const viewer = users.find(u => u.id === viewerId);
-                          const stats = viewerStats[viewerId] || {};
                           return (
-                            <li key={viewerId} className={`viewer-stat ${stats.buffering ? 'buffering' : ''}`}>
-                              {viewer?.username || 'Unknown viewer'}: 
-                              {stats.buffering ? ' Buffering...' : ' Streaming'} 
-                              <span className={`connection-quality ${stats.quality || 'unknown'}`}>
-                                ({stats.quality || 'connecting'})
+                            <li key={viewerId} className="viewer-stat">
+                              {viewer?.username || 'Unknown viewer'}: Connected
+                              <span className="connection-quality good">
+                                (streaming)
                               </span>
                             </li>
                           );
+}
+
+export default Room;
                         })}
                       </ul>
                     )}
                   </div>
-
                 </>
               )}
             </div>
@@ -1033,13 +1111,39 @@ const stopStreaming = () => {
                     className="viewer-video"
                     playsInline
                   />
-                  <div className="stream-status">
-                    {!viewerVideoRef.current || !viewerVideoRef.current.srcObject ? (
-                      <div className="connecting-indicator">Connecting to host stream...</div>
-                    ) : viewerVideoRef.current.readyState < 3 ? (
-                      <div className="buffering-indicator">Buffering stream...</div>
-                    ) : null}
+                  
+                  {/* Connection status indicator */}
+                  <div className="connection-status">
+                    <div className="status-indicator">
+                      {connectionStatus === 'disconnected' ? (
+                        <>
+                          <div className="status-dot disconnected"></div>
+                          <span>Disconnected</span>
+                        </>
+                      ) : connectionStatus === 'connecting' ? (
+                        <>
+                          <div className="status-dot connecting"></div>
+                          <span>Connecting to stream...</span>
+                        </>
+                      ) : connectionStatus === 'buffering' ? (
+                        <>
+                          <div className="status-dot buffering"></div>
+                          <span>Buffering content...</span>
+                        </>
+                      ) : connectionStatus === 'error' ? (
+                        <>
+                          <div className="status-dot error"></div>
+                          <span>Connection error</span>
+                        </>
+                      ) : (
+                        <>
+                          <div className="status-dot ready"></div>
+                          <span>Stream connected</span>
+                        </>
+                      )}
+                    </div>
                   </div>
+                  
                   <div className="viewer-controls">
                     <button onClick={toggleTheaterMode} className="control-button theater-button">
                       {isTheaterMode ? 'Exit Theater' : 'Theater Mode'}
@@ -1116,7 +1220,4 @@ const stopStreaming = () => {
         </div>
       </div>
     </div>
-  );
-}
-
-export default Room;
+  )};
