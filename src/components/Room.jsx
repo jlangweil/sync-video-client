@@ -1088,9 +1088,6 @@ function Room() {
                               </span>
                             </li>
                           );
-}
-
-export default Room;
                         })}
                       </ul>
                     )}
@@ -1221,3 +1218,5 @@ export default Room;
       </div>
     </div>
   )};
+
+  export default Room;
