@@ -1,20 +1,30 @@
-import process from 'process';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import './index.css';
-import App from './App';
-import reportWebVitals from './reportWebVitals';
+import Home from './components/Home';
+import Room from './components/Room/Room';
 
-window.process = process;
+// Polyfill for process to fix WebRTC compatibility issues
+if (typeof window !== 'undefined' && !window.process) {
+  window.process = {
+    env: {
+      NODE_ENV: window.location.hostname.includes('localhost') ? 'development' : 'production'
+    },
+    nextTick: function(callback) {
+      setTimeout(callback, 0);
+    }
+  };
+}
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <App />
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/room/:roomId" element={<Room />} />
+      </Routes>
+    </BrowserRouter>
   </React.StrictMode>
 );
-
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
-reportWebVitals();
