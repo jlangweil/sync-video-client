@@ -76,7 +76,6 @@ function Room() {
     // Get data from localStorage
     const storedUsername = localStorage.getItem('username');
     const storedIsHost = localStorage.getItem('isHost') === 'true';
-    const storedFileUrl = sessionStorage.getItem('hostFileUrl');
     
     if (!storedUsername) {
       navigate('/');
@@ -86,8 +85,24 @@ function Room() {
     setUsername(storedUsername);
     setIsHost(storedIsHost);
     
-    if (storedIsHost && storedFileUrl) {
-      setVideoUrl(`local:${localStorage.getItem('hostFileName')}`);
+    // Check for file URL in session storage
+    if (storedIsHost) {
+      console.log('Host detected, checking for file URL...');
+      
+      const fileUrl = sessionStorage.getItem('hostFileUrl');
+      const fileName = localStorage.getItem('hostFileName');
+      
+      if (fileUrl && fileName) {
+        console.log(`File URL found for ${fileName}`);
+        // IMPORTANT: Here we set the URL correctly with the local: prefix
+        setVideoUrl(`local:${fileName}`);
+      } else {
+        console.error('Host missing file URL or file name', { 
+          fileUrl: fileUrl ? 'Available' : 'Missing', 
+          fileName: fileName || 'Missing' 
+        });
+        addSystemMessage('Error: File information is missing. Please return to home and try again.');
+      }
     }
     
     // Initialize socket with dynamic server URL
@@ -154,7 +169,7 @@ function Room() {
     
     // Handle streaming status updates
     socketRef.current.on('streaming-status', (data) => {
-      if (!isHost) {
+      if (!storedIsHost) {
         if (data.isStreaming) {
           setVideoUrl(`streaming:${data.fileName}`);
           addSystemMessage(`Host is streaming: ${data.fileName}`);
@@ -246,6 +261,15 @@ function Room() {
       });
     }
   };
+
+  // Debug info
+  console.log('Room component render state:', {
+    isHost,
+    videoUrl,
+    fileUrlInSession: sessionStorage.getItem('hostFileUrl') ? 'Available' : 'Not available',
+    fileNameInStorage: localStorage.getItem('hostFileName'),
+    usersCount: users.length
+  });
 
   return (
     <WebRTCProvider

@@ -67,14 +67,21 @@ function Home() {
       localStorage.setItem('isHost', 'true');
       
       // Store file info in localStorage
-      // Note: We can't store the actual file in localStorage, but we'll store metadata
       localStorage.setItem('hostFileName', file.name);
       localStorage.setItem('hostFileType', file.type);
       localStorage.setItem('hostFileSize', file.size.toString());
       
       // Create a file URL that can be accessed in the Room component
+      // IMPORTANT: This is a critical part that was causing the streaming issue
       const fileUrl = URL.createObjectURL(file);
+      console.log('Creating object URL for file:', fileUrl ? 'URL created successfully' : 'Failed to create URL');
+      
+      // Store in both sessionStorage (primary) and localStorage (backup indicator)
       sessionStorage.setItem('hostFileUrl', fileUrl);
+      localStorage.setItem('hostFileUrlBackup', 'file_url_stored');
+      
+      // Create a timestamp to help with debugging
+      localStorage.setItem('fileUrlCreatedAt', new Date().toISOString());
       
       setCreatingRoom(false);
       
