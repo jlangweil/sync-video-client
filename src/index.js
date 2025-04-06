@@ -1,9 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import './index.css';
-import Home from './components/Home';
-import Room from './components/Room/Room';
+import App from './App';
 
 // Polyfill for process to fix WebRTC compatibility issues
 if (typeof window !== 'undefined' && !window.process) {
@@ -20,11 +18,6 @@ if (typeof window !== 'undefined' && !window.process) {
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/room/:roomId" element={<Room />} />
-      </Routes>
-    </BrowserRouter>
+    <App />
   </React.StrictMode>
 );
