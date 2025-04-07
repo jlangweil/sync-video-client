@@ -3,20 +3,17 @@ import Peer from 'peerjs';
 
 export const WebRTCContext = createContext(null);
 
-// Enhanced PeerJS config with more reliable STUN/TURN servers for cross-network connectivity
+// PeerJS config with more reliable STUN/TURN servers
 const PEER_CONFIG = {
   debug: 3, // Log level (0-3)
   config: {
     iceServers: [
-      // STUN servers
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
       { urls: 'stun:stun3.l.google.com:19302' },
       { urls: 'stun:stun4.l.google.com:19302' },
-      { urls: 'stun:stun.stunprotocol.org:3478' },
-      
-      // Free TURN servers - add more for better reliability
+      // Free TURN servers
       {
         urls: 'turn:openrelay.metered.ca:80',
         username: 'openrelayproject',
@@ -31,36 +28,8 @@ const PEER_CONFIG = {
         urls: 'turn:openrelay.metered.ca:443?transport=tcp',
         username: 'openrelayproject',
         credential: 'openrelayproject'
-      },
-      // Additional TURN servers for better NAT traversal
-      {
-        urls: 'turn:numb.viagenie.ca',
-        username: 'webrtc@live.com',
-        credential: 'muazkh'
-      },
-      {
-        urls: 'turn:relay.backups.cz',
-        username: 'webrtc',
-        credential: 'webrtc'
-      },
-      {
-        urls: 'turn:relay.metered.ca:80',
-        username: 'e8dd65f64e22e6cd30a7eb01',
-        credential: 'uWdWNmkhvyqTEswO'
-      },
-      {
-        urls: 'turn:relay.metered.ca:443',
-        username: 'e8dd65f64e22e6cd30a7eb01',
-        credential: 'uWdWNmkhvyqTEswO'
-      },
-      {
-        urls: 'turn:relay.metered.ca:443?transport=tcp',
-        username: 'e8dd65f64e22e6cd30a7eb01',
-        credential: 'uWdWNmkhvyqTEswO'
       }
-    ],
-    iceCandidatePoolSize: 10,
-    iceTransportPolicy: 'all' // Use 'all' for best chance of connection, 'relay' as fallback
+    ]
   }
 };
 
@@ -81,7 +50,6 @@ export const WebRTCProvider = ({
   const [videoDuration, setVideoDuration] = useState(0);
   const [peerConnections, setPeerConnections] = useState({});
   const [peerIdMap, setPeerIdMap] = useState({});
-  const [networkStats, setNetworkStats] = useState({});
   
   // Refs
   const peerRef = useRef(null);
@@ -90,7 +58,6 @@ export const WebRTCProvider = ({
   const viewerVideoRef = useRef(null);
   const fileUrlRef = useRef(null);
   const localStreamRef = useRef(null);
-  const statsIntervalRef = useRef(null);
 
   // Load file URL from sessionStorage
   useEffect(() => {
@@ -134,30 +101,8 @@ export const WebRTCProvider = ({
     
     socketRef.current.on('peer-id', handlePeerIdRegistration);
     
-    // Handle viewer reconnect requests
-    socketRef.current.on('viewer-reconnect-request', (data) => {
-      console.log('Received viewer reconnect request');
-      if (isHost && isStreaming && localStreamRef.current) {
-        // Find the peer ID of the requester
-        const viewerSocketId = data.socketId;
-        const viewerPeerId = peerIdMap[viewerSocketId];
-        
-        if (viewerPeerId) {
-          console.log(`Reconnecting to viewer ${viewerPeerId}`);
-          // Close existing connection if any
-          if (peersRef.current[viewerPeerId]) {
-            peersRef.current[viewerPeerId].close();
-            delete peersRef.current[viewerPeerId];
-          }
-          // Call the peer again
-          callPeer(viewerPeerId);
-        }
-      }
-    });
-    
     return () => {
       socketRef.current.off('peer-id', handlePeerIdRegistration);
-      socketRef.current.off('viewer-reconnect-request');
     };
   }, [socketRef.current, isHost, isStreaming]);
 
@@ -259,45 +204,22 @@ export const WebRTCProvider = ({
         console.log('Receiving call from host:', call.peer);
         setConnectionStatus('connecting');
         
-        // Enhanced answer options
-        const answerOptions = {
-          sdpSemantics: 'unified-plan',
-          iceRestart: true
-        };
-        
-        // Answer the call without sending a stream back but with enhanced options
-        call.answer(null, answerOptions);
+        // Answer the call without sending a stream back
+        call.answer();
         
         // Handle stream from host
         call.on('stream', stream => {
-          console.log('Received stream from host:', stream);
-          console.log('Stream tracks:', stream.getTracks().map(track => ({
-            kind: track.kind,
-            enabled: track.enabled,
-            muted: track.muted,
-            readyState: track.readyState
-          })));
+          console.log('Received stream from host');
           
           // Set the stream to the video element
           if (viewerVideoRef.current) {
-            console.log('Setting stream to video element');
             viewerVideoRef.current.srcObject = stream;
-            
-            // Track metadata loading
-            viewerVideoRef.current.onloadedmetadata = () => {
-              console.log('Video metadata loaded');
-            };
-            
-            viewerVideoRef.current.onloadeddata = () => {
-              console.log('Video data loaded');
-            };
             
             // Try to play
             viewerVideoRef.current.play()
               .then(() => {
                 console.log('Viewer video is playing');
                 setConnectionStatus('ready');
-                addSystemMessage('Connected to host stream');
               })
               .catch(err => {
                 console.error('Error playing video:', err);
@@ -306,64 +228,10 @@ export const WebRTCProvider = ({
                 // Add click handler to start playback
                 viewerVideoRef.current.addEventListener('click', () => {
                   viewerVideoRef.current.play()
-                    .then(() => {
-                      setConnectionStatus('ready');
-                      addSystemMessage('Connected to host stream');
-                    })
+                    .then(() => setConnectionStatus('ready'))
                     .catch(err => console.error('Still cannot play:', err));
                 }, { once: true });
               });
-            
-            // Start collecting stats if we have a connection
-            if (call.peerConnection) {
-              // Clear any existing interval
-              if (statsIntervalRef.current) {
-                clearInterval(statsIntervalRef.current);
-              }
-              
-              statsIntervalRef.current = setInterval(async () => {
-                try {
-                  const stats = await call.peerConnection.getStats();
-                  let videoStats = {};
-                  
-                  stats.forEach(report => {
-                    if (report.type === 'inbound-rtp' && report.kind === 'video') {
-                      videoStats = {
-                        bytesReceived: report.bytesReceived,
-                        packetsReceived: report.packetsReceived,
-                        packetsLost: report.packetsLost || 0,
-                        jitter: report.jitter || 0,
-                        framesDecoded: report.framesDecoded || 0,
-                        framesDropped: report.framesDropped || 0,
-                        timestamp: report.timestamp
-                      };
-                    }
-                  });
-                  
-                  if (Object.keys(videoStats).length > 0) {
-                    setNetworkStats(videoStats);
-                    console.log('Network stats:', videoStats);
-                    
-                    // If we're receiving data but still in 'connecting' state after 5 seconds,
-                    // force the status to 'ready'
-                    if (connectionStatus === 'connecting' && 
-                        videoStats.bytesReceived > 0 && 
-                        videoStats.packetsReceived > 0) {
-                      setTimeout(() => {
-                        if (connectionStatus === 'connecting') {
-                          console.log('Forcing connection status to ready based on network stats');
-                          setConnectionStatus('ready');
-                        }
-                      }, 5000);
-                    }
-                  }
-                } catch (err) {
-                  console.warn('Error getting connection stats:', err);
-                }
-              }, 2000);
-            }
-          } else {
-            console.error('Viewer video element not found');
           }
         });
         
@@ -371,29 +239,12 @@ export const WebRTCProvider = ({
           console.log('Call closed');
           setConnectionStatus('disconnected');
           addSystemMessage('Host disconnected');
-          
-          // Clear stats interval
-          if (statsIntervalRef.current) {
-            clearInterval(statsIntervalRef.current);
-            statsIntervalRef.current = null;
-          }
         });
         
         call.on('error', err => {
           console.error('Call error:', err);
           setConnectionStatus('error');
           addSystemMessage(`Call error: ${err.message || 'Unknown error'}`);
-          
-          // Try to reconnect by requesting reconnection from host
-          if (socketRef.current) {
-            setTimeout(() => {
-              console.log('Requesting reconnection from host');
-              socketRef.current.emit('viewer-reconnect-request', {
-                roomId,
-                socketId: socketRef.current.id
-              });
-            }, 5000);
-          }
         });
         
         // Save the call reference
@@ -414,16 +265,10 @@ export const WebRTCProvider = ({
       if (peerRef.current && !peerRef.current.destroyed) {
         peerRef.current.destroy();
       }
-      
-      // Clear any stats interval
-      if (statsIntervalRef.current) {
-        clearInterval(statsIntervalRef.current);
-        statsIntervalRef.current = null;
-      }
     };
   }, [socketRef.current]);
   
-  // Enhanced callPeer function with better connection handling
+  // Function to call a peer
   const callPeer = (peerId) => {
     if (!peerRef.current || !localStreamRef.current) {
       console.error('Cannot call peer: No peer connection or stream');
@@ -461,44 +306,14 @@ export const WebRTCProvider = ({
         console.warn('Warning: No video tracks in stream');
       }
       
-      // Set enhanced options for the call to improve NAT traversal
-      const callOptions = {
-        // Use SDPSemantics unified-plan for better compatibility
-        sdpSemantics: 'unified-plan',
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
-        iceRestart: true, // Force ICE restart if connection failed previously
-        constraints: {
-          offerExtmapAllowMixed: true,
-          voiceActivityDetection: false
-        }
-      };
-      
-      const call = peerRef.current.call(peerId, localStreamRef.current, callOptions);
+      const call = peerRef.current.call(peerId, localStreamRef.current);
       
       // Log call creation
       console.log(`Call created to ${peerId}`, call);
       
-      // Add ICE connection state monitoring
-      if (call.peerConnection) {
-        call.peerConnection.oniceconnectionstatechange = () => {
-          console.log(`ICE connection state to ${peerId}:`, call.peerConnection.iceConnectionState);
-          
-          // If connection failed, try restarting ICE
-          if (call.peerConnection.iceConnectionState === 'failed') {
-            console.log('ICE connection failed, attempting to restart');
-            try {
-              call.peerConnection.restartIce();
-            } catch (err) {
-              console.error('Error restarting ICE:', err);
-            }
-          }
-        };
-      }
-      
-      // Add timeout to detect connection failures but give more time for NAT traversal
+      // Add timeout to detect connection failures
       const callTimeout = setTimeout(() => {
-        console.log(`Call to ${peerId} timed out after 45s`);
+        console.log(`Call to ${peerId} timed out after 30s`);
         if (peersRef.current[peerId]) {
           call.close();
           delete peersRef.current[peerId];
@@ -507,24 +322,9 @@ export const WebRTCProvider = ({
             delete newPeers[peerId];
             return newPeers;
           });
-          
-          // Try to reconnect one more time
-          console.log(`Attempting to reconnect to ${peerId}...`);
-          setTimeout(() => {
-            if (!peersRef.current[peerId]) {
-              // Only retry if we haven't already established a new connection
-              const retryCall = peerRef.current.call(peerId, localStreamRef.current, callOptions);
-              peersRef.current[peerId] = retryCall;
-              setPeerConnections(prev => ({ ...prev, [peerId]: retryCall }));
-              
-              // Setup event handlers for the retry call
-              setupCallEventHandlers(retryCall, peerId);
-            }
-          }, 2000);
         }
-      }, 45000); // Longer timeout for NAT traversal
+      }, 30000);
       
-      // Setup event handlers
       call.on('stream', () => {
         console.log(`Connected to viewer ${peerId}`);
         clearTimeout(callTimeout);
@@ -554,31 +354,6 @@ export const WebRTCProvider = ({
       console.error(`Error calling peer ${peerId}:`, err);
       addSystemMessage(`Failed to connect to viewer: ${err.message}`);
     }
-  };
-  
-  // Helper function to setup call event handlers
-  const setupCallEventHandlers = (call, peerId, callTimeout = null) => {
-    call.on('stream', () => {
-      console.log(`Connected to viewer ${peerId}`);
-      if (callTimeout) {
-        clearTimeout(callTimeout);
-      }
-    });
-    
-    call.on('close', () => {
-      console.log(`Call to ${peerId} closed`);
-      delete peersRef.current[peerId];
-      setPeerConnections(prev => {
-        const newPeers = { ...prev };
-        delete newPeers[peerId];
-        return newPeers;
-      });
-    });
-    
-    call.on('error', err => {
-      console.error(`Call to ${peerId} error:`, err);
-      addSystemMessage(`Error connecting to viewer: ${err.message || 'Unknown error'}`);
-    });
   };
   
   // Enhanced startStreaming function with better debug and media handling
@@ -619,9 +394,6 @@ export const WebRTCProvider = ({
       // Play the file locally for the host
       if (hostVideoRef.current) {
         console.log('Setting up host video with URL:', fileUrlRef.current.substring(0, 50) + '...');
-        
-        // Apply cross-origin attribute for better browser compatibility
-        hostVideoRef.current.crossOrigin = "anonymous";
         
         // Directly set the source on the video element
         hostVideoRef.current.src = fileUrlRef.current;
@@ -717,28 +489,12 @@ export const WebRTCProvider = ({
           return false;
         }
         
-        // Apply lower resolution constraints to improve streaming performance across networks
-        if (stream && stream.getVideoTracks().length > 0) {
-          const videoTrack = stream.getVideoTracks()[0];
-          try {
-            videoTrack.applyConstraints({
-              width: 854,
-              height: 480,
-              frameRate: 30
-            });
-            console.log('Applied 480p resolution constraints to video track');
-          } catch (e) {
-            console.warn('Could not apply constraints:', e);
-          }
-        }
-        
-        // Log stream tracks with detailed settings
+        // Log stream tracks
         console.log('Stream tracks:', stream.getTracks().map(track => ({
           kind: track.kind,
           enabled: track.enabled,
           muted: track.muted,
-          readyState: track.readyState,
-          settings: track.getSettings()  // This will show encoding parameters
+          readyState: track.readyState
         })));
         
         // Ensure we have video and audio tracks
@@ -887,75 +643,6 @@ export const WebRTCProvider = ({
       trackCount: localStreamRef.current ? localStreamRef.current.getTracks().length : 0
     };
   };
-  
-  // Function to debug network connectivity
-  const debugNetworkConnectivity = async () => {
-    console.log('=== Network Connectivity Debug ===');
-    
-    try {
-      // Check if we can reach common servers
-      const googleCheck = await fetch('https://www.google.com/generate_204', { 
-        mode: 'no-cors',
-        cache: 'no-cache'
-      })
-      .then(() => 'Success')
-      .catch(err => `Error: ${err.message}`);
-      
-      console.log('Internet connectivity (Google):', googleCheck);
-      
-      // Check STUN server connectivity
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-      });
-      
-      pc.createDataChannel('connectivity_check');
-      
-      let candidates = [];
-      
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          candidates.push({
-            type: event.candidate.type,
-            protocol: event.candidate.protocol,
-            address: event.candidate.address
-          });
-        }
-      };
-      
-      await pc.createOffer().then(offer => pc.setLocalDescription(offer));
-      
-      // Wait for ICE gathering to complete
-      await new Promise(resolve => {
-        setTimeout(resolve, 5000);
-      });
-      
-      console.log('ICE candidates gathered:', candidates.length);
-      
-      const hasServerReflexive = candidates.some(c => c.type === 'srflx');
-      const hasRelay = candidates.some(c => c.type === 'relay');
-      
-      console.log('Has server reflexive candidates (STUN working):', hasServerReflexive);
-      console.log('Has relay candidates (TURN working):', hasRelay);
-      
-      // Cleanup
-      pc.close();
-      
-      return {
-        internet: googleCheck === 'Success',
-        stunWorking: hasServerReflexive,
-        turnWorking: hasRelay,
-        candidates: candidates.length
-      };
-    } catch (err) {
-      console.error('Error checking connectivity:', err);
-      return {
-        internet: false,
-        stunWorking: false,
-        turnWorking: false,
-        error: err.message
-      };
-    }
-  };
 
   // Create context value
   const contextValue = {
@@ -967,7 +654,6 @@ export const WebRTCProvider = ({
     bufferPercentage,
     videoDuration,
     peerConnections,
-    networkStats,
     
     // Refs
     fileUrlRef,
@@ -980,7 +666,6 @@ export const WebRTCProvider = ({
     startStreaming,
     stopStreaming,
     debugWebRTCConnections,
-    debugNetworkConnectivity,
     
     // Setters
     setStreamError,
