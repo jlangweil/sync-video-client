@@ -1,5 +1,5 @@
 .room-container {
-    background-color: white;
+    background-color: #2c3e50;
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     padding: 1rem;
@@ -17,6 +17,7 @@
   .room-id {
     display: flex;
     align-items: center;
+    color: white;
   }
   
   .copy-button {

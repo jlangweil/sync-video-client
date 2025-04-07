@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import './index.css';
 import Home from './components/Home';
 import Room from './components/Room/Room';
+import JoshTVBanner from './components/JoshTVBanner';
 
 // Polyfill for process to fix WebRTC compatibility issues
 if (typeof window !== 'undefined' && !window.process) {
@@ -21,6 +22,7 @@ const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
     <BrowserRouter>
+      <JoshTVBanner/>
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/room/:roomId" element={<Room />} />

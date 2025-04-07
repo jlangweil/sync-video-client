@@ -1,18 +1,21 @@
 import React from 'react';
 
 const JoshTVBanner = () => {
-  const bannerStyle = {
+
+    const bannerStyle = {
     background: 'linear-gradient(135deg, #3498db, #2c3e50)',
     color: 'white',
     padding: '15px 20px',
     textAlign: 'center',
     boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
     borderRadius: '6px',
-    margin: '10px auto 20px',
+    margin: '0 auto 10px',
     maxWidth: '1200px',
     position: 'relative',
-    overflow: 'hidden'
-  };
+    overflow: 'hidden',
+    boxSizing: 'border-box',
+    width: '100%'
+    };
 
   const titleStyle = {
     margin: '5px 0',

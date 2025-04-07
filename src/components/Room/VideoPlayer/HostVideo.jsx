@@ -281,13 +281,13 @@ function HostVideo({
             <p>Local file: {videoUrl && videoUrl.startsWith('local:') ? 'Yes' : 'No'}</p>
             <p>Video element: {hostVideoRef.current ? 'Created' : 'Not created'}</p>
             
-            <button 
+           {/*  <button 
               onClick={runDebugCheck} 
               className="debug-button"
               style={{ marginTop: '20px', padding: '5px 10px', background: '#333', color: 'white', border: 'none', borderRadius: '4px' }}
             >
               Run Diagnostic
-            </button>
+            </button> */}
             
             {showDebug && (
               <div className="debug-output" style={{ marginTop: '15px', padding: '10px', background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '4px', fontSize: '12px', textAlign: 'left' }}>
