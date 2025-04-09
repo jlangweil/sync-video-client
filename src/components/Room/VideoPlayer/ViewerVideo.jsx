@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useWebRTC } from '../WebRTC/WebRTCProvider';
 import './VideoPlayer.css';
 
@@ -10,8 +10,36 @@ function ViewerVideo({
 }) {
   const { 
     viewerVideoRef, 
-    connectionStatus
+    connectionStatus,
+    bufferPercentage
   } = useWebRTC();
+
+  const [reconnecting, setReconnecting] = useState(false);
+  const [reconnectTimer, setReconnectTimer] = useState(null);
+  const [lastConnectionChange, setLastConnectionChange] = useState(Date.now());
+
+  // Handle connection status changes
+  useEffect(() => {
+    setLastConnectionChange(Date.now());
+    
+    if (connectionStatus === 'disconnected') {
+      // If disconnected for more than a few seconds, show reconnecting UI
+      const timer = setTimeout(() => {
+        setReconnecting(true);
+      }, 3000);
+      
+      setReconnectTimer(timer);
+      
+      return () => clearTimeout(timer);
+    } else if (connectionStatus === 'ready') {
+      // Clear reconnecting UI when connected
+      setReconnecting(false);
+    }
+    
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+    }
+  }, [connectionStatus]);
 
   // Request fullscreen function
   const requestFullscreen = () => {
@@ -19,6 +47,34 @@ function ViewerVideo({
       viewerVideoRef.current.requestFullscreen();
     } else if (viewerVideoRef.current && viewerVideoRef.current.webkitRequestFullscreen) {
       viewerVideoRef.current.webkitRequestFullscreen();
+    }
+  };
+
+  // Get connection status text
+  const getConnectionStatusText = () => {
+    switch (connectionStatus) {
+      case 'disconnected':
+        return 'Disconnected from host';
+      case 'connecting':
+        return 'Connecting to stream...';
+      case 'buffering':
+        return 'Buffering content...';
+      case 'error':
+        return 'Connection error';
+      case 'ready':
+        return 'Stream connected';
+      default:
+        return 'Waiting for host';
+    }
+  };
+
+  // Calculate time since last connection change
+  const getTimeSinceChange = () => {
+    const secondsElapsed = Math.floor((Date.now() - lastConnectionChange) / 1000);
+    if (secondsElapsed < 60) {
+      return `${secondsElapsed}s ago`;
+    } else {
+      return `${Math.floor(secondsElapsed / 60)}m ${secondsElapsed % 60}s ago`;
     }
   };
 
@@ -41,7 +97,7 @@ function ViewerVideo({
               {connectionStatus === 'disconnected' ? (
                 <>
                   <div className="status-dot disconnected"></div>
-                  <span>Disconnected</span>
+                  <span>Disconnected {reconnecting ? '(reconnecting...)' : ''}</span>
                 </>
               ) : connectionStatus === 'connecting' ? (
                 <>
@@ -51,12 +107,12 @@ function ViewerVideo({
               ) : connectionStatus === 'buffering' ? (
                 <>
                   <div className="status-dot buffering"></div>
-                  <span>Buffering content...</span>
+                  <span>Buffering content... {bufferPercentage > 0 ? `${bufferPercentage}%` : ''}</span>
                 </>
               ) : connectionStatus === 'error' ? (
                 <>
                   <div className="status-dot error"></div>
-                  <span>Connection error</span>
+                  <span>Connection error - try refreshing</span>
                 </>
               ) : (
                 <>
@@ -66,6 +122,24 @@ function ViewerVideo({
               )}
             </div>
           </div>
+          
+          {/* Extended reconnection UI */}
+          {reconnecting && connectionStatus === 'disconnected' && (
+            <div className="reconnection-overlay">
+              <div className="reconnection-message">
+                <div className="reconnection-spinner"></div>
+                <p>Connection lost</p>
+                <p className="small">Attempting to reconnect...</p>
+                <p className="status-time">Disconnected {getTimeSinceChange()}</p>
+                <button 
+                  onClick={() => window.location.reload()} 
+                  className="refresh-button"
+                >
+                  Refresh Page
+                </button>
+              </div>
+            </div>
+          )}
           
           <div className="viewer-controls">
             <button onClick={toggleTheaterMode} className="control-button theater-button">

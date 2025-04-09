@@ -11,7 +11,46 @@ function RoomHeader({
   isTheaterMode 
 }) {
   // Get WebRTC context
-  const { isStreaming, bufferPercentage } = useWebRTC();
+  const { 
+    isStreaming, 
+    bufferPercentage, 
+    connectionStatus,
+    isSeekInProgress,
+    isReconnecting
+  } = useWebRTC();
+
+  // Get status message based on current state
+  const getStatusMessage = () => {
+    if (isHost) {
+      if (isStreaming) {
+        if (isSeekInProgress) return "Seeking and reconnecting viewers...";
+        if (isReconnecting) return "Reestablishing connections...";
+        return "Streaming";
+      }
+      return "";
+    } else {
+      // Viewer status
+      if (connectionStatus === 'disconnected') return "Disconnected from host";
+      if (connectionStatus === 'connecting') return "Connecting to stream...";
+      if (connectionStatus === 'buffering') return "Buffering content...";
+      if (connectionStatus === 'error') return "Connection error";
+      if (connectionStatus === 'ready') return "Connected to stream";
+      return "Waiting for host";
+    }
+  };
+
+  // Get status class based on current state
+  const getStatusClass = () => {
+    if (isHost) {
+      if (isStreaming) {
+        if (isSeekInProgress || isReconnecting) return "reconnecting";
+        return "streaming";
+      }
+      return "";
+    } else {
+      return connectionStatus;
+    }
+  };
 
   return (
     <div className={`room-info ${isTheaterMode ? 'theater-room-info' : ''}`}>
@@ -28,18 +67,24 @@ function RoomHeader({
             ⟳ Syncing...
           </span>
         )}
-        {isHost && isStreaming ? (
-          <span className="streaming">
-            ↑ Streaming
+        
+        {/* Stream status indicator */}
+        {getStatusMessage() && (
+          <span className={`status ${getStatusClass()}`}>
+            {getStatusMessage()}
+            {bufferPercentage > 0 && connectionStatus === 'buffering' && (
+              <span className="buffer-info">
+                {" "}{bufferPercentage}%
+                <div className="buffer-bar">
+                  <div 
+                    className="buffer-progress" 
+                    style={{ width: `${bufferPercentage}%` }}
+                  ></div>
+                </div>
+              </span>
+            )}
           </span>
-        ) : (!isHost && isStreaming) ? (
-          <span className="buffer-indicator">
-            Progress: {bufferPercentage}%
-            <div className="buffer-bar">
-              <div className="buffer-progress" style={{ width: `${bufferPercentage}%` }}></div>
-            </div>
-          </span>
-        ) : null}
+        )}
       </div>
     </div>
   );

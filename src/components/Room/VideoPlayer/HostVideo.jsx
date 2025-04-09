@@ -19,11 +19,14 @@ function HostVideo({
     peerConnections,
     setStreamError,
     debugWebRTCConnections,
-    fileUrlRef
+    fileUrlRef,
+    isSeekInProgress,
+    isReconnecting
   } = useWebRTC();
   
   const [debugInfo, setDebugInfo] = useState({});
   const [showDebug, setShowDebug] = useState(false);
+  const [seekingInfo, setSeekingInfo] = useState(null);
   
   // Use a ref to ensure video element is created properly
   const videoContainerRef = useRef(null);
@@ -91,8 +94,36 @@ function HostVideo({
       hostVideoRef.current.onpause = handlePause;
       hostVideoRef.current.onseeked = handleSeek;
       hostVideoRef.current.ontimeupdate = handleTimeUpdate;
+      
+      // Track seeking status - this helps show visual feedback when seeking
+      hostVideoRef.current.onseeking = () => {
+        if (isStreaming) {
+          setSeekingInfo({
+            time: new Date(),
+            targetTime: hostVideoRef.current.currentTime
+          });
+        }
+      };
     }
   }, [hostVideoRef.current, setStreamError]);
+
+  // Show seeking overlay when isSeekInProgress is true
+  useEffect(() => {
+    if (isSeekInProgress) {
+      // Show seeking UI
+      setSeekingInfo(prev => prev || { 
+        time: new Date(),
+        targetTime: hostVideoRef.current?.currentTime || 0
+      });
+    } else {
+      // Clear seeking UI after a short delay
+      const timer = setTimeout(() => {
+        setSeekingInfo(null);
+      }, 1000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isSeekInProgress]);
 
   // Handle play/pause/seek events 
   const handlePlay = () => {
@@ -212,34 +243,6 @@ function HostVideo({
     console.log('Debug information:', debugData);
     setDebugInfo(debugData);
     setShowDebug(true);
-    
-    // Verify local file format
-    console.log('Video URL:', videoUrl);
-    console.log('Is local file format:', videoUrl.startsWith('local:'));
-    
-    // Verify video element
-    if (hostVideoRef.current) {
-      console.log('Video element details:', {
-        controls: hostVideoRef.current.controls,
-        autoplay: hostVideoRef.current.autoplay,
-        paused: hostVideoRef.current.paused,
-        src: hostVideoRef.current.src ? 'Set' : 'Not set'
-      });
-    }
-    
-    // Try to create a detached video element for isolation testing
-    try {
-      const testVideo = document.createElement('video');
-      if (fileUrl) {
-        testVideo.src = fileUrl;
-        testVideo.load();
-        console.log('Test video created with source');
-      } else {
-        console.log('No file URL available for test video');
-      }
-    } catch (err) {
-      console.error('Error testing video element:', err);
-    }
   };
 
   // Fix video container style
@@ -275,60 +278,6 @@ function HostVideo({
           <p className="hint">
             Click to start streaming the selected file to viewers
           </p>
-          
-          <div className="debug-info">
-            <p>Video URL status: {fileUrlRef.current ? 'Available' : 'Not available'}</p>
-            <p>Local file: {videoUrl && videoUrl.startsWith('local:') ? 'Yes' : 'No'}</p>
-            <p>Video element: {hostVideoRef.current ? 'Created' : 'Not created'}</p>
-            
-           {/*  <button 
-              onClick={runDebugCheck} 
-              className="debug-button"
-              style={{ marginTop: '20px', padding: '5px 10px', background: '#333', color: 'white', border: 'none', borderRadius: '4px' }}
-            >
-              Run Diagnostic
-            </button> */}
-            
-            {showDebug && (
-              <div className="debug-output" style={{ marginTop: '15px', padding: '10px', background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '4px', fontSize: '12px', textAlign: 'left' }}>
-                <h4 style={{ margin: '0 0 10px 0' }}>Diagnostic Results:</h4>
-                
-                <div>
-                  <h5 style={{ margin: '5px 0' }}>File Information:</h5>
-                  <ul style={{ margin: '5px 0', paddingLeft: '20px' }}>
-                    <li>Name: {debugInfo.fileInfo?.name}</li>
-                    <li>Type: {debugInfo.fileInfo?.type}</li>
-                    <li>Size: {debugInfo.fileInfo?.size}</li>
-                    <li>URL in Session Storage: {debugInfo.fileInfo?.url}</li>
-                    <li>URL in Reference: {debugInfo.fileInfo?.urlInRef}</li>
-                  </ul>
-                </div>
-                
-                <div>
-                  <h5 style={{ margin: '5px 0' }}>WebRTC Status:</h5>
-                  <ul style={{ margin: '5px 0', paddingLeft: '20px' }}>
-                    <li>Peer Connected: {debugInfo.webrtc?.peerConnected ? 'Yes' : 'No'}</li>
-                    <li>Connection Count: {debugInfo.webrtc?.connectionCount}</li>
-                    <li>Stream Active: {debugInfo.webrtc?.streamActive ? 'Yes' : 'No'}</li>
-                    <li>Track Count: {debugInfo.webrtc?.trackCount}</li>
-                  </ul>
-                </div>
-                
-                <div>
-                  <h5 style={{ margin: '5px 0' }}>Video Element:</h5>
-                  <ul style={{ margin: '5px 0', paddingLeft: '20px' }}>
-                    <li>Created: {debugInfo.videoElement?.created}</li>
-                    <li>Ready State: {debugInfo.videoElement?.readyState}</li>
-                    <li>Source Set: {debugInfo.videoElement?.src}</li>
-                  </ul>
-                </div>
-                
-                <p style={{ margin: '10px 0 0 0', fontSize: '11px' }}>
-                  Recommendation: If URL is not available, try reloading the page or recreating the room.
-                </p>
-              </div>
-            )}
-          </div>
         </div>
       ) : (
         // The video is already in the DOM via the ref, controlled by WebRTCProvider
@@ -336,6 +285,8 @@ function HostVideo({
           <div className="connection-info">
             <p className="streaming-status">
               Streaming to {Object.keys(peerConnections).length} viewer(s)
+              {isSeekInProgress && " - Reconnecting viewers..."}
+              {isReconnecting && " - Reestablishing connections..."}
             </p>
           </div>
           
@@ -346,6 +297,17 @@ function HostVideo({
             <button onClick={stopStreaming} className="control-button stop-button">
               Stop Streaming
             </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Seeking indicator overlay */}
+      {seekingInfo && (
+        <div className="seeking-overlay">
+          <div className="seeking-message">
+            <div className="seeking-spinner"></div>
+            <p>Seeking to {Math.floor(seekingInfo.targetTime / 60)}:{Math.floor(seekingInfo.targetTime % 60).toString().padStart(2, '0')}</p>
+            {isSeekInProgress && <p className="small">Reconnecting viewers...</p>}
           </div>
         </div>
       )}

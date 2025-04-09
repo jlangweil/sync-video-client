@@ -3,6 +3,15 @@ import Peer from 'peerjs';
 
 export const WebRTCContext = createContext(null);
 
+// Hook for using WebRTC context
+export const useWebRTC = () => {
+  const context = useContext(WebRTCContext);
+  if (context === null) {
+    throw new Error('useWebRTC must be used within a WebRTCProvider');
+  }
+  return context;
+};
+
 // PeerJS config with more reliable STUN/TURN servers
 const PEER_CONFIG = {
   debug: 3, // Log level (0-3)
@@ -50,6 +59,8 @@ export const WebRTCProvider = ({
   const [videoDuration, setVideoDuration] = useState(0);
   const [peerConnections, setPeerConnections] = useState({});
   const [peerIdMap, setPeerIdMap] = useState({});
+  const [isSeekInProgress, setIsSeekInProgress] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   
   // Refs
   const peerRef = useRef(null);
@@ -58,6 +69,9 @@ export const WebRTCProvider = ({
   const viewerVideoRef = useRef(null);
   const fileUrlRef = useRef(null);
   const localStreamRef = useRef(null);
+  const disconnectedViewersRef = useRef({});
+  const reconnectAttemptsRef = useRef({});
+  const maxReconnectAttempts = 5;
 
   // Load file URL from sessionStorage
   useEffect(() => {
@@ -79,6 +93,142 @@ export const WebRTCProvider = ({
     }
   }, [isHost, addSystemMessage]);
 
+  // Handle seek operations
+  const handleSeekEvent = (currentTime) => {
+    if (!isHost || !isStreaming) return;
+    
+    console.log('Handling seek event to time:', currentTime);
+    setIsSeekInProgress(true);
+    
+    // Store list of current viewers to reconnect
+    disconnectedViewersRef.current = { ...peerConnections };
+    
+    // Notify viewers about the seek operation
+    if (socketRef.current) {
+      socketRef.current.emit('videoSeekOperation', {
+        roomId,
+        seekTime: currentTime
+      });
+    }
+    
+    // Close current connections to prepare for reconnection
+    Object.keys(peersRef.current).forEach(peerId => {
+      if (peersRef.current[peerId]) {
+        console.log(`Temporarily closing connection to ${peerId} for seek operation`);
+        peersRef.current[peerId].close();
+      }
+    });
+    
+    // Reset peer connections
+    peersRef.current = {};
+    setPeerConnections({});
+    
+    // Recreate the stream after a short delay
+    setTimeout(async () => {
+      try {
+        console.log('Recreating stream after seek');
+        await refreshStreamAfterSeek();
+        
+        // Start reconnection process
+        setIsReconnecting(true);
+        reconnectToViewers();
+      } catch (err) {
+        console.error('Error refreshing stream after seek:', err);
+        setStreamError(`Seek failed: ${err.message}. Try refreshing the page.`);
+        setIsSeekInProgress(false);
+      }
+    }, 500);
+  };
+
+  // Refresh stream after seek without restarting everything
+  const refreshStreamAfterSeek = async () => {
+    if (!hostVideoRef.current || !isStreaming) {
+      console.error('Cannot refresh stream: Video element or stream not available');
+      return false;
+    }
+    
+    try {
+      // Ensure video is in the right state
+      console.log('Refreshing video stream after seek');
+      
+      // Recapture the stream
+      let newStream;
+      
+      if (hostVideoRef.current.captureStream) {
+        newStream = hostVideoRef.current.captureStream();
+      } else if (hostVideoRef.current.mozCaptureStream) {
+        newStream = hostVideoRef.current.mozCaptureStream();
+      }
+      
+      if (!newStream) {
+        throw new Error('Failed to recapture stream from video');
+      }
+      
+      // Update the stream reference
+      if (localStreamRef.current) {
+        // Stop old tracks
+        localStreamRef.current.getTracks().forEach(track => {
+          track.stop();
+        });
+      }
+      
+      localStreamRef.current = newStream;
+      console.log('New stream created with tracks:', newStream.getTracks().length);
+      
+      return true;
+    } catch (err) {
+      console.error('Error refreshing stream:', err);
+      return false;
+    }
+  };
+
+  // Reconnect to viewers after seek
+  const reconnectToViewers = () => {
+    const disconnectedIds = Object.keys(disconnectedViewersRef.current);
+    console.log(`Attempting to reconnect to ${disconnectedIds.length} viewers`);
+    
+    if (disconnectedIds.length === 0) {
+      setIsSeekInProgress(false);
+      setIsReconnecting(false);
+      return;
+    }
+    
+    // Initialize reconnect attempts if needed
+    disconnectedIds.forEach(peerId => {
+      if (!reconnectAttemptsRef.current[peerId]) {
+        reconnectAttemptsRef.current[peerId] = 0;
+      }
+    });
+    
+    // Attempt to call each disconnected viewer
+    disconnectedIds.forEach(async (peerId) => {
+      if (reconnectAttemptsRef.current[peerId] < maxReconnectAttempts) {
+        reconnectAttemptsRef.current[peerId]++;
+        console.log(`Reconnect attempt ${reconnectAttemptsRef.current[peerId]} to ${peerId}`);
+        
+        try {
+          await callPeer(peerId);
+        } catch (err) {
+          console.error(`Failed to reconnect to ${peerId}:`, err);
+        }
+      } else {
+        console.warn(`Max reconnect attempts reached for ${peerId}`);
+        delete disconnectedViewersRef.current[peerId];
+      }
+    });
+    
+    // Check if we still have viewers to reconnect to
+    if (Object.keys(disconnectedViewersRef.current).length > 0) {
+      // Try again after a delay
+      setTimeout(reconnectToViewers, 2000);
+    } else {
+      console.log('Reconnection process completed');
+      setIsSeekInProgress(false);
+      setIsReconnecting(false);
+      reconnectAttemptsRef.current = {};
+    }
+  };
+
   // Handle peer ID registrations
   useEffect(() => {
     if (!socketRef.current) return;
@@ -99,16 +249,27 @@ export const WebRTCProvider = ({
       }
     };
     
+    // Handle seek notifications from the host
+    const handleSeekNotification = ({ seekTime }) => {
+      if (!isHost && viewerVideoRef.current) {
+        console.log('Host seeking to:', seekTime);
+        // Update viewer UI to show we're waiting for reconnection
+        setConnectionStatus('buffering');
+        addSystemMessage('Host is seeking to a new position, reconnecting...');
+      }
+    };
+    
     socketRef.current.on('peer-id', handlePeerIdRegistration);
+    socketRef.current.on('videoSeekOperation', handleSeekNotification);
     
     return () => {
       socketRef.current.off('peer-id', handlePeerIdRegistration);
+      socketRef.current.off('videoSeekOperation', handleSeekNotification);
     };
   }, [socketRef.current, isHost, isStreaming]);
 
   // Function to create a safe peer ID
   const createSafePeerId = () => {
-    // Create a unique ID using timestamp and random string to avoid collisions
     const timestamp = Date.now();
     const randomString = Math.random().toString(36).substring(2, 10);
     return `jtvr-${timestamp}-${randomString}`;
@@ -124,7 +285,6 @@ export const WebRTCProvider = ({
     try {
       console.log('Initializing PeerJS with random ID');
       
-      // Initialize PeerJS with a safe randomly generated ID
       const safeId = createSafePeerId();
       console.log('Using safe peer ID:', safeId);
       
@@ -149,7 +309,6 @@ export const WebRTCProvider = ({
         console.error('PeerJS error:', err);
         
         if (err.type === 'peer-unavailable') {
-          // This is normal when trying to connect to a peer that's not yet available
           console.log('Peer unavailable, may retry later');
         } else if (err.type === 'invalid-id') {
           console.error('Invalid peer ID, regenerating with random ID');
@@ -237,8 +396,13 @@ export const WebRTCProvider = ({
         
         call.on('close', () => {
           console.log('Call closed');
-          setConnectionStatus('disconnected');
-          addSystemMessage('Host disconnected');
+          // Don't set to disconnected immediately, could be a seek operation
+          setTimeout(() => {
+            if (viewerVideoRef.current && !viewerVideoRef.current.srcObject) {
+              setConnectionStatus('disconnected');
+              addSystemMessage('Host disconnected. Please wait for reconnection.');
+            }
+          }, 5000);
         });
         
         call.on('error', err => {
@@ -272,88 +436,117 @@ export const WebRTCProvider = ({
   const callPeer = (peerId) => {
     if (!peerRef.current || !localStreamRef.current) {
       console.error('Cannot call peer: No peer connection or stream');
-      return;
+      return Promise.reject(new Error('Missing peer connection or stream'));
     }
     
-    try {
-      console.log(`Calling peer ${peerId}...`);
-      
-      // Check if we already have a connection to this peer
-      if (peersRef.current[peerId]) {
-        console.log(`Already have a connection to ${peerId}, closing existing connection`);
-        peersRef.current[peerId].close();
-        delete peersRef.current[peerId];
+    return new Promise((resolve, reject) => {
+      try {
+        console.log(`Calling peer ${peerId}...`);
         
-        setPeerConnections(prev => {
-          const newPeers = { ...prev };
-          delete newPeers[peerId];
-          return newPeers;
-        });
-      }
-      
-      // Log stream details before calling
-      const streamInfo = {
-        tracks: localStreamRef.current.getTracks().length,
-        videoTracks: localStreamRef.current.getVideoTracks().length,
-        audioTracks: localStreamRef.current.getAudioTracks().length,
-        active: localStreamRef.current.active
-      };
-      
-      console.log(`Calling with stream:`, streamInfo);
-      
-      // Ensure stream is valid
-      if (streamInfo.videoTracks === 0) {
-        console.warn('Warning: No video tracks in stream');
-      }
-      
-      const call = peerRef.current.call(peerId, localStreamRef.current);
-      
-      // Log call creation
-      console.log(`Call created to ${peerId}`, call);
-      
-      // Add timeout to detect connection failures
-      const callTimeout = setTimeout(() => {
-        console.log(`Call to ${peerId} timed out after 30s`);
+        // Check if we already have a connection to this peer
         if (peersRef.current[peerId]) {
-          call.close();
+          console.log(`Already have a connection to ${peerId}, closing existing connection`);
+          peersRef.current[peerId].close();
           delete peersRef.current[peerId];
+          
           setPeerConnections(prev => {
             const newPeers = { ...prev };
             delete newPeers[peerId];
             return newPeers;
           });
         }
-      }, 30000);
-      
-      call.on('stream', () => {
-        console.log(`Connected to viewer ${peerId}`);
-        clearTimeout(callTimeout);
-      });
-      
-      call.on('close', () => {
-        console.log(`Call to ${peerId} closed`);
-        delete peersRef.current[peerId];
-        setPeerConnections(prev => {
-          const newPeers = { ...prev };
-          delete newPeers[peerId];
-          return newPeers;
+        
+        // Log stream details before calling
+        const streamInfo = {
+          tracks: localStreamRef.current.getTracks().length,
+          videoTracks: localStreamRef.current.getVideoTracks().length,
+          audioTracks: localStreamRef.current.getAudioTracks().length,
+          active: localStreamRef.current.active
+        };
+        
+        console.log(`Calling with stream:`, streamInfo);
+        
+        // Ensure stream is valid
+        if (streamInfo.videoTracks === 0) {
+          console.warn('Warning: No video tracks in stream');
+        }
+        
+        const call = peerRef.current.call(peerId, localStreamRef.current);
+        
+        // Log call creation
+        console.log(`Call created to ${peerId}`, call);
+        
+        // Add timeout to detect connection failures
+        const callTimeout = setTimeout(() => {
+          console.log(`Call to ${peerId} timed out after 30s`);
+          if (peersRef.current[peerId]) {
+            call.close();
+            delete peersRef.current[peerId];
+            setPeerConnections(prev => {
+              const newPeers = { ...prev };
+              delete newPeers[peerId];
+              return newPeers;
+            });
+            reject(new Error('Call timed out'));
+          }
+        }, 30000);
+        
+        call.on('stream', () => {
+          console.log(`Connected to viewer ${peerId}`);
+          clearTimeout(callTimeout);
+          
+          // If this was a disconnected viewer, remove from disconnected list
+          if (disconnectedViewersRef.current[peerId]) {
+            delete disconnectedViewersRef.current[peerId];
+            delete reconnectAttemptsRef.current[peerId];
+          }
+          
+          resolve(call);
         });
-      });
-      
-      call.on('error', err => {
-        console.error(`Call to ${peerId} error:`, err);
-        addSystemMessage(`Error connecting to viewer: ${err.message || 'Unknown error'}`);
-      });
-      
-      // Save the call reference
-      peersRef.current[peerId] = call;
-      setPeerConnections(prev => ({ ...prev, [peerId]: call }));
-      
-      console.log(`Call established to ${peerId}`);
-    } catch (err) {
-      console.error(`Error calling peer ${peerId}:`, err);
-      addSystemMessage(`Failed to connect to viewer: ${err.message}`);
-    }
+        
+        call.on('close', () => {
+          console.log(`Call to ${peerId} closed`);
+          delete peersRef.current[peerId];
+          setPeerConnections(prev => {
+            const newPeers = { ...prev };
+            delete newPeers[peerId];
+            return newPeers;
+          });
+          
+          // Only add to disconnected if we're not intentionally seeking
+          if (!isSeekInProgress && isStreaming) {
+            disconnectedViewersRef.current[peerId] = true;
+            reconnectAttemptsRef.current[peerId] = 0;
+            
+            // Try to reconnect automatically
+            setTimeout(() => {
+              if (disconnectedViewersRef.current[peerId] && isStreaming) {
+                console.log(`Attempting to reconnect to ${peerId} after disconnect`);
+                callPeer(peerId).catch(err => {
+                  console.error(`Failed to reconnect to ${peerId}:`, err);
+                });
+              }
+            }, 3000);
+          }
+        });
+        
+        call.on('error', err => {
+          console.error(`Call to ${peerId} error:`, err);
+          reject(err);
+          addSystemMessage(`Error connecting to viewer: ${err.message || 'Unknown error'}`);
+        });
+        
+        // Save the call reference
+        peersRef.current[peerId] = call;
+        setPeerConnections(prev => ({ ...prev, [peerId]: call }));
+        
+        console.log(`Call established to ${peerId}`);
+      } catch (err) {
+        console.error(`Error calling peer ${peerId}:`, err);
+        reject(err);
+        addSystemMessage(`Failed to connect to viewer: ${err.message}`);
+      }
+    });
   };
   
   // Enhanced startStreaming function with better debug and media handling
@@ -399,6 +592,14 @@ export const WebRTCProvider = ({
         hostVideoRef.current.src = fileUrlRef.current;
         hostVideoRef.current.muted = false;
         hostVideoRef.current.load();
+        
+        // Add seek listener
+        hostVideoRef.current.onseeking = () => {
+          console.log('Video seeking detected');
+          if (isHost && isStreaming && !isSeekInProgress) {
+            handleSeekEvent(hostVideoRef.current.currentTime);
+          }
+        };
         
         // Log video element readiness
         console.log('Video element state:', {
@@ -523,7 +724,9 @@ export const WebRTCProvider = ({
         
         // Call each peer
         for (const viewerId of peersToCall) {
-          callPeer(viewerId);
+          callPeer(viewerId).catch(err => {
+            console.error(`Failed to call viewer ${viewerId}:`, err);
+          });
         }
         
         // If no peers found, log a warning
@@ -595,6 +798,8 @@ export const WebRTCProvider = ({
     // Reset peer connections
     peersRef.current = {};
     setPeerConnections({});
+    disconnectedViewersRef.current = {};
+    reconnectAttemptsRef.current = {};
     
     // Stop the host video
     if (hostVideoRef.current) {
@@ -605,6 +810,8 @@ export const WebRTCProvider = ({
     
     // Update state
     setIsStreaming(false);
+    setIsSeekInProgress(false);
+    setIsReconnecting(false);
     
     // Notify server
     socketRef.current.emit('streaming-status-update', {
@@ -640,7 +847,10 @@ export const WebRTCProvider = ({
       peerId: peerRef.current ? peerRef.current.id : 'None',
       connectionCount: Object.keys(peersRef.current).length,
       streamActive: !!localStreamRef.current,
-      trackCount: localStreamRef.current ? localStreamRef.current.getTracks().length : 0
+      trackCount: localStreamRef.current ? localStreamRef.current.getTracks().length : 0,
+      isSeekInProgress,
+      isReconnecting,
+      disconnectedViewers: Object.keys(disconnectedViewersRef.current).length
     };
   };
 
@@ -654,6 +864,8 @@ export const WebRTCProvider = ({
     bufferPercentage,
     videoDuration,
     peerConnections,
+    isSeekInProgress,
+    isReconnecting,
     
     // Refs
     fileUrlRef,
@@ -666,6 +878,7 @@ export const WebRTCProvider = ({
     startStreaming,
     stopStreaming,
     debugWebRTCConnections,
+    handleSeekEvent,
     
     // Setters
     setStreamError,
@@ -679,13 +892,4 @@ export const WebRTCProvider = ({
       {children}
     </WebRTCContext.Provider>
   );
-};
-
-// Hook
-export const useWebRTC = () => {
-  const context = useContext(WebRTCContext);
-  if (context === null) {
-    throw new Error('useWebRTC must be used within a WebRTCProvider');
-  }
-  return context;
 };

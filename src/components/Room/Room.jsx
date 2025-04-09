@@ -40,6 +40,7 @@ function Room() {
   const [isTheaterMode, setIsTheaterMode] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState('disconnected');
   
   // Processing flag for playback events
   const [processingRemoteUpdate, setProcessingRemoteUpdate] = useState(false);
@@ -52,6 +53,9 @@ function Room() {
   
   // Use a ref to track last sent state to avoid unnecessary rerenders
   const lastSentState = useRef(null);
+  
+  // Ref to track last reported playback time for seek detection
+  const lastReportedTime = useRef(null);
 
   // Toggle theater mode
   const toggleTheaterMode = () => {
@@ -180,6 +184,17 @@ function Room() {
       }
     });
     
+    // Handle seek operations from host
+    socketRef.current.on('videoSeekOperation', (data) => {
+      console.log('Host is seeking to:', data.seekTime);
+      
+      if (!storedIsHost) {
+        // For viewers, update connection status to show buffering
+        setConnectionStatus('buffering');
+        addSystemMessage(`Host is seeking to ${Math.floor(data.seekTime / 60)}:${Math.floor(data.seekTime % 60).toString().padStart(2, '0')}`);
+      }
+    });
+    
     // Cleanup function
     return () => {
       socketRef.current.disconnect();
@@ -252,6 +267,7 @@ function Room() {
   // Handle video state change (play/pause/seek)
   const handleVideoStateChange = (isPlaying, currentTime) => {
     if (socketRef.current && isHost) {
+      // Send regular state update
       socketRef.current.emit('videoStateChange', {
         roomId,
         videoState: {
@@ -259,6 +275,21 @@ function Room() {
           currentTime
         }
       });
+      
+      // Track significant seek operations (more than 10 seconds)
+      if (lastReportedTime.current !== null) {
+        const seekDistance = Math.abs(currentTime - lastReportedTime.current);
+        if (seekDistance > 10) {
+          console.log(`Major seek detected: ${seekDistance.toFixed(2)}s`);
+          socketRef.current.emit('videoSeekOperation', {
+            roomId,
+            seekTime: currentTime
+          });
+        }
+      }
+      
+      // Remember this time for future seek distance calculation
+      lastReportedTime.current = currentTime;
     }
   };
 

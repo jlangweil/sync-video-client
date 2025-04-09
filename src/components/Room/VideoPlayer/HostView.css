@@ -1,0 +1,94 @@
+/* Higher specificity selectors to override existing styles */
+
+/* Main container - increased specificity */
+body .app-container main .room-container {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  padding: 1rem;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 2rem;
+  overflow: visible;
+}
+
+/* Force horizontal layout - increased specificity */
+body .app-container main .room-container .main-content {
+  display: flex !important;
+  flex-direction: row !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  gap: 1rem !important;
+}
+
+/* Force video container to take proper space - increased specificity */
+body .app-container main .room-container .main-content .video-container {
+  flex: 1 !important;
+  background-color: #000 !important;
+  border-radius: 4px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 300px !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+  max-width: 65% !important; /* Limit video container width */
+  width: 65% !important;
+}
+
+/* More specific control for video wrapper */
+body .app-container main .room-container .main-content .video-container .video-wrapper {
+  width: 100% !important;
+  height: 100% !important;
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+}
+
+/* Streaming controls with higher specificity */
+body .app-container main .room-container .main-content .video-container .video-wrapper .streaming-controls {
+  width: 100% !important;
+  height: 100% !important;
+  background-color: rgba(0, 0, 0, 0.8) !important;
+  color: white !important;
+  padding: 1.5rem !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* Sidebar with fixed width - higher specificity */
+body .app-container main .room-container .main-content .sidebar {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 1rem !important;
+  width: 300px !important;
+  flex-shrink: 0 !important;
+  max-width: 300px !important;
+}
+
+/* Video element fitting - higher specificity */
+body .app-container main .room-container .main-content .video-container .video-wrapper video {
+  max-width: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain !important;
+}
+
+/* Only stack vertically on very small screens */
+@media (max-width: 768px) {
+  body .app-container main .room-container .main-content {
+    flex-direction: column !important;
+  }
+  
+  body .app-container main .room-container .main-content .video-container {
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+  
+  body .app-container main .room-container .main-content .sidebar {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
