@@ -102,6 +102,46 @@ function Room() {
       }
     }
   };
+
+  // Toggle fullscreen without theater mode
+  const toggleFullscreen = () => {
+    const videoContainer = document.querySelector('.video-container');
+    
+    if (!videoContainer) return;
+    
+    const isFullscreen = document.fullscreenElement || 
+                         document.webkitFullscreenElement || 
+                         document.mozFullScreenElement || 
+                         document.msFullscreenElement;
+    
+    if (!isFullscreen) {
+      // Enter fullscreen
+      if (videoContainer.requestFullscreen) {
+        videoContainer.requestFullscreen().catch(err => {
+          console.error('Error attempting to enable fullscreen:', err);
+        });
+      } else if (videoContainer.mozRequestFullScreen) { // Firefox
+        videoContainer.mozRequestFullScreen();
+      } else if (videoContainer.webkitRequestFullscreen) { // Chrome, Safari
+        videoContainer.webkitRequestFullscreen();
+      } else if (videoContainer.msRequestFullscreen) { // IE/Edge
+        videoContainer.msRequestFullscreen();
+      }
+    } else {
+      // Exit fullscreen
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(err => {
+          console.error('Error attempting to exit fullscreen:', err);
+        });
+      } else if (document.mozCancelFullScreen) { // Firefox
+        document.mozCancelFullScreen();
+      } else if (document.webkitExitFullscreen) { // Chrome, Safari
+        document.webkitExitFullscreen();
+      } else if (document.msExitFullscreen) { // IE/Edge
+        document.msExitFullscreen();
+      }
+    }
+  };
   
   // Helper to add system messages
   const addSystemMessage = (text) => {
@@ -116,7 +156,7 @@ function Room() {
     ]);
   };
   
-  // Basic resize functions
+  // Basic resize functions with minimum width constraint
   const handleMouseDown = (e) => {
     console.log('MouseDown - starting resize');
     startXRef.current = e.clientX;
@@ -129,7 +169,8 @@ function Room() {
     if (!isResizing) return;
     
     const deltaX = startXRef.current - e.clientX;
-    const newWidth = Math.max(200, Math.min(800, startWidthRef.current + deltaX));
+    // Increase minimum width to 260px to ensure chat controls remain visible
+    const newWidth = Math.max(260, Math.min(800, startWidthRef.current + deltaX));
     
     setSidebarWidth(newWidth);
   };
@@ -450,13 +491,37 @@ function Room() {
               />
             )}
             
+            {/* Control buttons in upper right corner */}
+            {!isTheaterMode && (
+              <div className="video-controls">
+                <button 
+                  className="control-button theater-button"
+                  onClick={toggleTheaterMode}
+                  title="Enter Theater Mode"
+                >
+                  <span className="button-icon">⛶</span>
+                  Theater Mode
+                </button>
+                <button 
+                  className="control-button fullscreen-button"
+                  onClick={toggleFullscreen}
+                  title="Toggle Fullscreen"
+                >
+                  <span className="button-icon">⤢</span>
+                  Fullscreen
+                </button>
+              </div>
+            )}
+            
             {/* Exit theater mode button */}
             {isTheaterMode && (
               <button 
                 className="exit-theater-button"
                 onClick={toggleTheaterMode}
+                title="Exit Theater Mode"
               >
-                Exit Theater Mode
+                <span className="button-icon">✕</span>
+                Exit Theater
               </button>
             )}
           </div>

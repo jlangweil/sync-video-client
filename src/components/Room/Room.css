@@ -1,4 +1,17 @@
-.room-container {
+/* Add fullscreen button to align with theater mode button */
+.fullscreen-button {
+  background-color: rgba(39, 174, 96, 0.8) !important; /* Green color to distinguish from theater mode */
+}
+
+/* Make theater buttons more visible in dark videos */
+.video-container:hover .video-controls {
+  opacity: 1;
+}
+
+.video-controls {
+  opacity: 0.7;
+  transition: opacity 0.3s;
+}.room-container {
   background-color: #2c3e50;
   border-radius: 8px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
@@ -307,30 +320,81 @@
   color: #aaa;
 }
 
-/* Improve exit button positioning in fullscreen */
-.exit-theater-button {
+/* Video control buttons in upper right corner */
+.video-controls {
   position: absolute;
-  top: 20px;
-  right: 20px;
-  background-color: rgba(0, 0, 0, 0.6);
+  top: 15px;
+  right: 15px;
+  z-index: 100;
+  display: flex;
+  gap: 10px;
+}
+
+.control-button {
+  background-color: rgba(52, 152, 219, 0.8);
   color: white;
   border: none;
   border-radius: 4px;
   padding: 8px 12px;
   cursor: pointer;
   font-size: 0.9rem;
-  z-index: 2500; /* Above header */
-  transition: background-color 0.2s, opacity 0.3s;
-  opacity: 0.3;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 0.2s, transform 0.1s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.control-button:hover {
+  background-color: rgba(41, 128, 185, 0.9);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+}
+
+.control-button:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.button-icon {
+  font-size: 1.1rem;
+}
+
+.theater-button {
+  background-color: rgba(52, 152, 219, 0.8);
+}
+
+/* Improved exit button style */
+.exit-theater-button {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background-color: rgba(231, 76, 60, 0.8);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  z-index: 2500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 0.2s, transform 0.1s;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
 .exit-theater-button:hover {
-  background-color: rgba(231, 76, 60, 0.8);
-  opacity: 1;
+  background-color: rgba(192, 57, 43, 0.9);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.3);
 }
 
-.theater-mode:hover .exit-theater-button {
-  opacity: 0.7;
+.exit-theater-button:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
 }
 
 /* Make text inputs better visible in theater mode */

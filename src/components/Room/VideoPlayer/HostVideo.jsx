@@ -257,47 +257,57 @@ function HostVideo({
 
   return (
     <div className="video-wrapper" style={videoWrapperStyle} ref={videoContainerRef}>
-      {!isStreaming ? (
-        // Show streaming controls before streaming starts
-        <div className="streaming-controls">
-          <h3>Stream your selected video</h3>
-          <p className="file-info">
-            File: {localStorage.getItem('hostFileName') || 'No file selected'}
-          </p>
-          
-          <button 
-            onClick={handleStartStreaming} 
-            className="primary-button"
-            disabled={!videoUrl.startsWith('local:')}
-          >
-            Start Streaming
-          </button>
-          
-          {streamError && <p className="error-message">{streamError}</p>}
-          
-          <p className="hint">
-            Click to start streaming the selected file to viewers
-          </p>
+      {isStreaming ? (
+        // The video is already in the DOM via the ref, controlled by WebRTCProvider
+        <div className="viewer-stats-panel">
+          <h4>Viewer Stats</h4>
+          {Object.keys(peerConnections).length === 0 ? (
+            <p>No viewers connected yet</p>
+          ) : (
+            <ul>
+              {Object.keys(peerConnections).map(viewerId => (
+                <li key={viewerId} className="viewer-stat">
+                  {viewerId.substring(0, 6)}: Connected
+                  <span className="connection-quality good">
+                    (streaming)
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       ) : (
-        // The video is already in the DOM via the ref, controlled by WebRTCProvider
-        <div className="host-controls">
-          <div className="connection-info">
-            <p className="streaming-status">
-              Streaming to {Object.keys(peerConnections).length} viewer(s)
-              {isSeekInProgress && " - Reconnecting viewers..."}
-              {isReconnecting && " - Reestablishing connections..."}
-            </p>
-          </div>
-          
-          <div className="control-buttons">
-            <button onClick={toggleTheaterMode} className="control-button theater-button">
-              {isTheaterMode ? 'Exit Theater' : 'Theater Mode'}
-            </button>
-            <button onClick={stopStreaming} className="control-button stop-button">
-              Stop Streaming
-            </button>
-          </div>
+        // Inline style for the streaming button at bottom center
+        <div style={{
+          position: 'absolute',
+          bottom: '20px',
+          left: '0',
+          right: '0',
+          display: 'flex',
+          justifyContent: 'center',
+          zIndex: 50
+        }}>
+          <button 
+            onClick={handleStartStreaming} 
+            style={{
+              backgroundColor: '#e74c3c',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              padding: '10px 24px',
+              fontSize: '1rem',
+              fontWeight: '500',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: '0 2px 5px rgba(0,0,0,0.3)'
+            }}
+            disabled={!videoUrl.startsWith('local:')}
+          >
+            <span style={{ fontSize: '1.2rem' }}>▶</span>
+            Start Streaming
+          </button>
         </div>
       )}
       
@@ -330,6 +340,26 @@ function HostVideo({
               ))}
             </ul>
           )}
+        </div>
+      )}
+      
+      {/* Error message */}
+      {streamError && !isStreaming && (
+        <div style={{
+          position: 'absolute',
+          bottom: '70px',
+          left: '0',
+          right: '0',
+          backgroundColor: 'rgba(231, 76, 60, 0.8)',
+          color: 'white',
+          padding: '10px',
+          textAlign: 'center',
+          borderRadius: '4px',
+          margin: '0 auto',
+          maxWidth: '80%',
+          zIndex: 51
+        }}>
+          {streamError}
         </div>
       )}
     </div>
