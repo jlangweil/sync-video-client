@@ -38,6 +38,7 @@ function Room() {
   const [copySuccess, setCopySuccess] = useState('');
   const [videoFit, setVideoFit] = useState('contain'); // 'contain' or 'cover'
   const [isTheaterMode, setIsTheaterMode] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
@@ -109,12 +110,12 @@ function Room() {
     
     if (!videoContainer) return;
     
-    const isFullscreen = document.fullscreenElement || 
+    const isScreenFullscreen = document.fullscreenElement || 
                          document.webkitFullscreenElement || 
                          document.mozFullScreenElement || 
                          document.msFullscreenElement;
     
-    if (!isFullscreen) {
+    if (!isScreenFullscreen) {
       // Enter fullscreen
       if (videoContainer.requestFullscreen) {
         videoContainer.requestFullscreen().catch(err => {
@@ -193,13 +194,15 @@ function Room() {
   // Handle fullscreen changes (like when user presses Escape)
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const isFullscreen = document.fullscreenElement || 
+      const isScreenFullscreen = document.fullscreenElement || 
                           document.webkitFullscreenElement || 
                           document.mozFullScreenElement || 
                           document.msFullscreenElement;
       
+      setIsFullscreen(!!isScreenFullscreen);
+      
       // If fullscreen was exited but theater mode is still on, turn it off
-      if (!isFullscreen && isTheaterMode) {
+      if (!isScreenFullscreen && isTheaterMode) {
         setIsTheaterMode(false);
       }
     };
@@ -478,7 +481,9 @@ function Room() {
                 videoUrl={videoUrl}
                 videoFit={videoFit}
                 isTheaterMode={isTheaterMode}
+                isFullscreen={isFullscreen}
                 toggleTheaterMode={toggleTheaterMode}
+                toggleFullscreen={toggleFullscreen}
                 handleVideoStateChange={handleVideoStateChange}
                 processingRemoteUpdate={processingRemoteUpdate}
               />
@@ -487,12 +492,14 @@ function Room() {
                 videoUrl={videoUrl}
                 videoFit={videoFit}
                 isTheaterMode={isTheaterMode}
+                isFullscreen={isFullscreen}
                 toggleTheaterMode={toggleTheaterMode}
+                toggleFullscreen={toggleFullscreen}
               />
             )}
             
-            {/* Control buttons in upper right corner */}
-            {!isTheaterMode && (
+            {/* Control buttons in upper right corner - ONLY SHOW WHEN NOT IN THEATER/FULLSCREEN MODE */}
+            {!isTheaterMode && !isFullscreen && (
               <div className="video-controls">
                 <button 
                   className="control-button theater-button"
@@ -513,17 +520,8 @@ function Room() {
               </div>
             )}
             
-            {/* Exit theater mode button */}
-            {isTheaterMode && (
-              <button 
-                className="exit-theater-button"
-                onClick={toggleTheaterMode}
-                title="Exit Theater Mode"
-              >
-                <span className="button-icon">✕</span>
-                Exit Theater
-              </button>
-            )}
+            {/* Exit theater mode button - REMOVED AS PER REQUEST */}
+            {/* User will use ESC key instead */}
           </div>
           
           {/* Simple resizable divider */}

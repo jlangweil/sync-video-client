@@ -155,3 +155,118 @@
 .status-dot.ready {
   background-color: #2ecc71;
 }
+
+/* NEW STYLES TO FIX VIDEO CENTERING AND BUTTON ISSUES */
+
+/* Hide theater and fullscreen buttons in theater or fullscreen mode */
+.theater-mode .theater-button,
+.theater-mode .fullscreen-button,
+.theater-mode .video-controls,
+.theater-mode .viewer-controls,
+.theater-mode button[class*="theater"],
+.theater-mode button[class*="fullscreen"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  position: absolute !important;
+  pointer-events: none !important;
+  z-index: -1 !important;
+}
+
+/* Center the video in the container */
+.video-wrapper {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  position: relative !important;
+  margin: 0 auto !important;
+}
+
+/* Make video stretch properly */
+.viewer-video {
+  max-width: 100% !important;
+  max-height: 100% !important;
+  margin: 0 auto !important;
+  display: block !important;
+  position: relative !important;
+  z-index: 5 !important;
+}
+
+/* Ensure theater mode properly centers video */
+.theater-mode .video-container {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* Fix any potential offset issues */
+.theater-mode .video-wrapper {
+  margin: 0 auto !important;
+  left: 0 !important;
+  right: 0 !important;
+  padding: 0 !important;
+  width: 100vw !important;
+}
+
+/* Handle any inline specific controls that need to be hidden */
+body .theater-mode button[class*="theater"],
+body .theater-mode button[class*="fullscreen"],
+body .theater-mode .control-button,
+body .theater-mode div[class*="control"] {
+  display: none !important;
+}
+
+/* Fix theater mode video positioning */
+.theater-mode video {
+  position: relative !important;
+  margin: 0 auto !important;
+  display: block !important;
+  max-height: 100vh !important;
+}
+
+/* Higher-specificity fix for Theater Mode button visible in screenshot */
+body .theater-mode .theater-mode-button,
+body .theater-mode .fullscreen-button,
+body .theater-mode *[class*="fullscreen"],
+body .theater-mode .video-controls {
+  display: none !important;
+}
+
+/* Specifically target the buttons on the right side that appear in the screenshot */
+.theater-mode button[title="Theater Mode"],
+.theater-mode button[title="Fullscreen"],
+.theater-mode button[title="Toggle Fullscreen"],
+.theater-mode button[title="Enter Theater Mode"] {
+  display: none !important;
+}
+
+/* Make sure inline styled buttons are hidden */
+.theater-mode *[style*="position: absolute"] {
+  display: none !important;
+}
+
+/* Fix position for the video container */
+.video-container {
+  position: relative !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+/* For the specific case of stacked buttons on the right */
+.theater-mode-button, 
+.fullscreen-button {
+  display: none !important;
+}
+
+/* Target those specific buttons */
+#theater_mode_button,
+#fullscreen_button {
+  display: none !important;
+}

@@ -25,7 +25,7 @@ function Home() {
   const [error, setError] = useState('');
   const [roomId, setRoomId] = useState('');
   const [username, setUsername] = useState('');
-  const [joining, setJoining] = useState(false);
+  const [joining, setJoining] = useState(true); // Changed to true to default to Join Room tab
   const [creatingRoom, setCreatingRoom] = useState(false);
   
   const navigate = useNavigate();
@@ -127,20 +127,53 @@ function Home() {
     <div className="home-container">
       <div className="tabs">
         <button 
-          className={!joining ? 'active' : ''} 
-          onClick={() => setJoining(false)}
-        >
-          Create Room
-        </button>
-        <button 
           className={joining ? 'active' : ''} 
           onClick={() => setJoining(true)}
         >
           Join Room
         </button>
+        <button 
+          className={!joining ? 'active' : ''} 
+          onClick={() => setJoining(false)}
+        >
+          Create Room
+        </button>
       </div>
       
-      {!joining ? (
+      {joining ? (
+        <div className="join-room">
+          <h2>Join an existing room</h2>
+          <form onSubmit={handleJoinRoom}>
+            <div className="form-group">
+              <label htmlFor="join-username">Your Name:</label>
+              <input
+                type="text"
+                id="join-username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Enter your name"
+                required
+              />
+            </div>
+            
+            <div className="form-group">
+              <label htmlFor="room-id">Room ID:</label>
+              <input
+                type="text"
+                id="room-id"
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
+                placeholder="Enter room ID"
+                required
+              />
+            </div>
+            
+            <button type="submit" className="primary-button">
+              Join Room
+            </button>
+          </form>
+        </div>
+      ) : (
         <div className="create-room">
           <h2>Create a new viewing room</h2>
           <form onSubmit={handleUpload}>
@@ -190,39 +223,6 @@ function Home() {
               The video will stream directly from your device to your viewers. 
               No uploading necessary!
             </p>
-          </form>
-        </div>
-      ) : (
-        <div className="join-room">
-          <h2>Join an existing room</h2>
-          <form onSubmit={handleJoinRoom}>
-            <div className="form-group">
-              <label htmlFor="join-username">Your Name:</label>
-              <input
-                type="text"
-                id="join-username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter your name"
-                required
-              />
-            </div>
-            
-            <div className="form-group">
-              <label htmlFor="room-id">Room ID:</label>
-              <input
-                type="text"
-                id="room-id"
-                value={roomId}
-                onChange={(e) => setRoomId(e.target.value)}
-                placeholder="Enter room ID"
-                required
-              />
-            </div>
-            
-            <button type="submit" className="primary-button">
-              Join Room
-            </button>
           </form>
         </div>
       )}

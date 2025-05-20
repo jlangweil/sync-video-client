@@ -6,7 +6,9 @@ function ViewerVideo({
   videoUrl,
   videoFit,
   isTheaterMode,
-  toggleTheaterMode
+  isFullscreen,
+  toggleTheaterMode,
+  toggleFullscreen
 }) {
   const { 
     viewerVideoRef, 
@@ -78,15 +80,31 @@ function ViewerVideo({
     }
   };
 
+  // Define video container styles to ensure proper centering
+  const videoContainerStyle = {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    height: '100%',
+    position: 'relative'
+  };
+
   return (
-    <div className="video-wrapper">
+    <div className="video-wrapper" style={videoContainerStyle}>
       {videoUrl && videoUrl.startsWith('streaming:') ? (
         // Show video when host is streaming
         <>
           <video
             ref={viewerVideoRef}
             controls={false}
-            style={{ objectFit: videoFit }}
+            style={{ 
+              objectFit: videoFit,
+              maxWidth: '100%',
+              maxHeight: '100%',
+              margin: '0 auto',
+              display: 'block'
+            }}
             className="viewer-video"
             playsInline
           />
@@ -141,20 +159,14 @@ function ViewerVideo({
             </div>
           )}
           
-          <div className="viewer-controls">
-            <button onClick={toggleTheaterMode} className="control-button theater-button">
-              {isTheaterMode ? 'Exit Theater' : 'Theater Mode'}
-            </button>
-            <button 
-              className="control-button fullscreen-button" 
-              onClick={requestFullscreen}
-            >
-              Fullscreen
-            </button>
-          </div>
-          <div className="viewer-message">
-            <p>Streaming from host - only the host can control playback</p>
-          </div>
+          {/* Controls completely removed - user will use ESC key instead */}
+          
+          {/* Only show this message when not in theater/fullscreen mode */}
+          {!isTheaterMode && !isFullscreen && (
+            <div className="viewer-message">
+              <p>Streaming from host - only the host can control playback</p>
+            </div>
+          )}
         </>
       ) : videoUrl && videoUrl.startsWith('local:') ? (
         // Host has a file but hasn't started streaming yet
