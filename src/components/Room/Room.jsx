@@ -42,6 +42,10 @@ function Room() {
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
   
+  // New state for resizable sidebar
+  const [sidebarWidth, setSidebarWidth] = useState(300);
+  const [isResizing, setIsResizing] = useState(false);
+  
   // Processing flag for playback events
   const [processingRemoteUpdate, setProcessingRemoteUpdate] = useState(false);
   
@@ -56,10 +60,47 @@ function Room() {
   
   // Ref to track last reported playback time for seek detection
   const lastReportedTime = useRef(null);
+  
+  // Ref to store starting mouse position and sidebar width for resize
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
 
-  // Toggle theater mode
+  // Toggle theater mode with fullscreen
   const toggleTheaterMode = () => {
-    setIsTheaterMode(!isTheaterMode);
+    const newTheaterMode = !isTheaterMode;
+    setIsTheaterMode(newTheaterMode);
+    
+    // If entering theater mode, request fullscreen
+    if (newTheaterMode) {
+      const roomContainer = document.querySelector('.room-container');
+      if (roomContainer) {
+        // Request fullscreen using the appropriate method for the browser
+        if (roomContainer.requestFullscreen) {
+          roomContainer.requestFullscreen().catch(err => {
+            console.error('Error attempting to enable fullscreen:', err);
+          });
+        } else if (roomContainer.mozRequestFullScreen) { // Firefox
+          roomContainer.mozRequestFullScreen();
+        } else if (roomContainer.webkitRequestFullscreen) { // Chrome, Safari
+          roomContainer.webkitRequestFullscreen();
+        } else if (roomContainer.msRequestFullscreen) { // IE/Edge
+          roomContainer.msRequestFullscreen();
+        }
+      }
+    } else {
+      // If exiting theater mode, exit fullscreen
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(err => {
+          console.error('Error attempting to exit fullscreen:', err);
+        });
+      } else if (document.mozCancelFullScreen) { // Firefox
+        document.mozCancelFullScreen();
+      } else if (document.webkitExitFullscreen) { // Chrome, Safari
+        document.webkitExitFullscreen();
+      } else if (document.msExitFullscreen) { // IE/Edge
+        document.msExitFullscreen();
+      }
+    }
   };
   
   // Helper to add system messages
@@ -74,6 +115,81 @@ function Room() {
       }
     ]);
   };
+  
+  // Basic resize functions
+  const handleMouseDown = (e) => {
+    console.log('MouseDown - starting resize');
+    startXRef.current = e.clientX;
+    startWidthRef.current = sidebarWidth;
+    setIsResizing(true);
+    e.preventDefault();
+  };
+  
+  const handleMouseMove = (e) => {
+    if (!isResizing) return;
+    
+    const deltaX = startXRef.current - e.clientX;
+    const newWidth = Math.max(200, Math.min(800, startWidthRef.current + deltaX));
+    
+    setSidebarWidth(newWidth);
+  };
+  
+  const handleMouseUp = () => {
+    console.log('MouseUp - stopping resize');
+    setIsResizing(false);
+    // Save to localStorage
+    localStorage.setItem('sidebarWidth', sidebarWidth.toString());
+  };
+  
+  // Get sidebar width from localStorage on initial load
+  useEffect(() => {
+    const storedWidth = localStorage.getItem('sidebarWidth');
+    if (storedWidth) {
+      setSidebarWidth(parseInt(storedWidth, 10));
+    }
+  }, []);
+  
+  // Handle fullscreen changes (like when user presses Escape)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isFullscreen = document.fullscreenElement || 
+                          document.webkitFullscreenElement || 
+                          document.mozFullScreenElement || 
+                          document.msFullscreenElement;
+      
+      // If fullscreen was exited but theater mode is still on, turn it off
+      if (!isFullscreen && isTheaterMode) {
+        setIsTheaterMode(false);
+      }
+    };
+    
+    // Add listeners for all browsers
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+    
+    return () => {
+      // Clean up listeners
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
+  }, [isTheaterMode]);
+  
+  // Set up event listeners for resize
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, sidebarWidth]);
   
   // Initialize socket and room
   useEffect(() => {
@@ -228,7 +344,7 @@ function Room() {
     return () => {
       socketRef.current.off('videoStateUpdate');
     };
-  }, [socketRef.current]);
+  }, []);
   
   // Auto-scroll chat to bottom when new messages arrive
   useEffect(() => {
@@ -236,7 +352,7 @@ function Room() {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
   }, [messages]);
-  
+    
   // Copy room ID to clipboard
   const copyRoomId = () => {
     navigator.clipboard.writeText(roomId)
@@ -293,15 +409,6 @@ function Room() {
     }
   };
 
-  // Debug info
-  console.log('Room component render state:', {
-    isHost,
-    videoUrl,
-    fileUrlInSession: sessionStorage.getItem('hostFileUrl') ? 'Available' : 'Not available',
-    fileNameInStorage: localStorage.getItem('hostFileName'),
-    usersCount: users.length
-  });
-
   return (
     <WebRTCProvider
       socketRef={socketRef}
@@ -321,7 +428,10 @@ function Room() {
         />
         
         <div className={`main-content ${isTheaterMode ? 'theater-mode' : ''}`}>
-          <div className="video-container">
+          <div 
+            className="video-container" 
+            style={{ width: `calc(100% - ${sidebarWidth + 20}px)` }}
+          >
             {isHost ? (
               <HostVideo 
                 videoUrl={videoUrl}
@@ -339,9 +449,28 @@ function Room() {
                 toggleTheaterMode={toggleTheaterMode}
               />
             )}
+            
+            {/* Exit theater mode button */}
+            {isTheaterMode && (
+              <button 
+                className="exit-theater-button"
+                onClick={toggleTheaterMode}
+              >
+                Exit Theater Mode
+              </button>
+            )}
           </div>
           
-          <div className="sidebar">
+          {/* Simple resizable divider */}
+          <div 
+            className="resizable-divider"
+            onMouseDown={handleMouseDown}
+          ></div>
+          
+          <div 
+            className="sidebar" 
+            style={{ width: `${sidebarWidth}px` }}
+          >
             <UserList users={users} currentUserId={socketRef.current?.id} />
             
             <ChatPanel

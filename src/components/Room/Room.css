@@ -1,458 +1,225 @@
 .room-container {
-    background-color: #2c3e50;
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    padding: 1rem;
-  }
-  
-  .room-info {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid #eee;
-  }
-  
-  .room-id {
-    display: flex;
-    align-items: center;
-    color: white;
-  }
-  
-  .copy-button {
-    margin-left: 0.5rem;
-    padding: 0.25rem 0.5rem;
-    background-color: #f1f1f1;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.8rem;
-  }
-  
-  .sync-status {
-    font-size: 0.9rem;
-  }
-  
-  .syncing {
-    color: #e67e22;
-    animation: pulse 1s infinite;
-  }
-  
-  .uploading {
-    color: #3498db;
-    animation: pulse 1s infinite;
-  }
-  
-  @keyframes pulse {
-    0% { opacity: 0.7; }
-    50% { opacity: 1; }
-    100% { opacity: 0.7; }
-  }
-  
-  .synced {
-    color: #27ae60;
-  }
-  
-  .main-content {
-    display: flex;
-    gap: 1rem;
-    height: calc(100vh - 200px);
-  }
-  
-  .video-container {
-    flex: 1;
-    background-color: #000;
-    border-radius: 4px;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-    z-index: 10;
-    pointer-events: auto !important;
-  }
-  
-  .video-wrapper {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10;
-    padding-bottom: 45px;
-  }
-  
-  .video-wrapper video {
-    width: 100%;
-    height: 100%;
-    max-height: calc(100% - 50px);
-    object-fit: contain;
-    transition: object-fit 0.3s ease;
-  }
-  
-  /* Streaming indicator */
-  .streaming-indicator {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    background-color: rgba(52, 152, 219, 0.8);
-    color: white;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    z-index: 30;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
-  
-  .streaming-indicator:before {
-    content: '';
-    display: block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background-color: white;
-    animation: pulse 1.5s infinite;
-  }
-  
-  /* Update viewer video styles to allow certain interactions */
-  .viewer-video {
-    pointer-events: auto !important; /* Allow interactions like resize */
-  }
-  
-  /* Custom controls for viewers */
-  .viewer-controls {
-    position: absolute;
-    bottom: 90px;
-    right: 10px;
-    z-index: 20;
-    display: flex;
-    gap: 8px;
-  }
-  
-  .control-button {
-    background-color: rgba(0, 0, 0, 0.7);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 6px 12px;
-    font-size: 0.9rem;
-    cursor: pointer;
-    transition: background-color 0.2s;
-  }
-
-  .full-screen-control-button {
-    top: 10px;
-    right: 10px;
-    background: rgba(255, 255, 255, 0.2);
-    border: none;
-    color: white;
-    padding: 5px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  
-  .control-button:hover {
-    background-color: rgba(0, 0, 0, 0.9);
-  }
-  
-  .fullscreen-button:hover {
-    background-color: rgba(0, 0, 0, 0.9);
-  }
-  
-  /* Update the viewer message position */
-  .viewer-message {
-    position: absolute;
-    bottom: 55px;
-    left: 0;
-    right: 0;
-    text-align: center;
-    background-color: rgba(0, 0, 0, 0.7);
-    color: white;
-    padding: 8px;
-    z-index: 10;
-    font-size: 0.9rem;
-  }
-  
-  .host-controls {
-    position: absolute;
-    bottom: 25px; /* Move it above the video controls */
-    left: 0;
-    right: 0;
-    display: flex;
-    justify-content: center;
-    z-index: 5; /* Lower z-index so it doesn't interfere with video controls */
-    background-color: rgba(0, 0, 0, 0.5);
-    padding: 8px;
-    gap: 10px;
-  }
-
-  .host-controls button {
-    z-index: 5;
-    position: relative;
-  }
-
-  .host-video {
-    z-index: 10;
-    position: relative;
-  }  
-  
-  .share-button {
-    background-color: #e74c3c;
-    color: white;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-weight: bold;
-  }
-  
-  .waiting-for-video {
-    color: white;
-    text-align: center;
-    padding: 2rem;
-  }
-  
-  .waiting-for-video .small {
-    font-size: 0.8rem;
-    opacity: 0.7;
-    margin-top: 1rem;
-  }
-  
-  /* Progress bar */
-  .progress-container {
-    width: 100%;
-    height: 20px;
-    background-color: rgba(255, 255, 255, 0.2);
-    border-radius: 10px;
-    margin-top: 1rem;
-    overflow: hidden;
-    position: relative;
-  }
-  
-  .progress-bar {
-    height: 100%;
-    background-color: #3498db;
-    border-radius: 10px;
-    transition: width 0.3s ease;
-  }
-  
-  .progress-container p {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    margin: 0;
-    font-size: 0.8rem;
-    color: #fff;
-    font-weight: bold;
-    text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
-  }
-  
-  /* Update Home.jsx styles */
-  .file-size {
-    font-size: 0.9rem;
-    color: #666;
-    margin-top: 0.25rem;
-  }
-  
-  .info-text {
-    font-size: 0.9rem;
-    color: #666;
-    margin-top: 1rem;
-    font-style: italic;
-  }
-  
-  .sidebar {
-    width: 300px;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  
-  .users-panel, .chat-panel {
-    background-color: #f9f9f9;
-    border-radius: 4px;
-    padding: 1rem;
-  }
-  
-  .users-panel {
-    flex: 0 0 auto;
-  }
-  
-  .users-panel h3, .chat-panel h3 {
-    margin-top: 0;
-    margin-bottom: 0.5rem;
-    font-size: 1rem;
-    color: #333;
-  }
-  
-  .users-panel ul {
-    list-style-type: none;
-    padding: 0;
-    margin: 0;
-  }
-  
-  .users-panel li {
-    padding: 0.25rem 0;
-    font-size: 0.9rem;
-  }
-  
-  .chat-panel {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-  }
-  
-  .chat-messages {
-    flex: 1;
-    overflow-y: auto;
-    margin-bottom: 0.5rem;
-    padding-right: 0.5rem;
-  }
-  
-  .message {
-    margin-bottom: 0.5rem;
-    font-size: 0.9rem;
-  }
-  
-  .message-user {
-    font-weight: bold;
-    margin-right: 0.25rem;
-  }
-  
-  .message-time {
-    font-size: 0.75rem;
-    color: #95a5a6;
-    margin-left: 0.5rem;
-  }
-  
-  .system-message {
-    color: #7f8c8d;
-    font-style: italic;
-  }
-  
-  .chat-input {
-    display: flex;
-    gap: 0.5rem;
-  }
-  
-  .chat-input input {
-    flex: 1;
-    padding: 0.5rem;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 0.9rem;
-  }
-  
-  .chat-input button {
-    padding: 0.5rem 1rem;
-    background-color: #3498db;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-
-  /* Styles for the video progress overlay */
-.video-progress-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    height: 4px;
-    background-color: #2ecc71;
-    z-index: 25;
-    transition: width 0.5s ease;
-  }
-  
-  /* Seek warning message */
-  .seek-warning {
-    position: absolute;
-    top: 20%;
-    left: 50%;
-    transform: translateX(-50%);
-    background-color: rgba(231, 76, 60, 0.9);
-    color: white;
-    padding: 8px 16px;
-    border-radius: 4px;
-    font-weight: bold;
-    z-index: 30;
-    animation: fadeIn 0.3s ease-in-out;
-  }
-  
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translate(-50%, -10px); }
-    to { opacity: 1; transform: translate(-50%, 0); }
-  }
-  
-  /* Styles for delete button */
-  .delete-button {
-    background-color: #e74c3c;
-    color: white;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-weight: bold;
-    margin-left: 10px;
-    opacity: 0.9;
-    transition: opacity 0.2s ease;
-  }
-  
-  .delete-button:hover {
-    opacity: 1;
-  }
-  
-  .delete-button:disabled {
-    background-color: #95a5a6;
-    cursor: not-allowed;
-    opacity: 0.7;
-  }
-  
-  /* Video deleted message */
-  .video-deleted-message {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    text-align: center;
-    padding: 2rem;
-  }
-  
-  .video-deleted-message p {
-    margin: 5px 0;
-  }
-  
-  .upload-prompt {
-    font-size: 0.9rem;
-    opacity: 0.8;
-    margin-top: 10px !important;
-  }
-   
-  /* Approaching boundary warning - shown when getting close to available content end */
-  .approaching-boundary {
-    position: absolute;
-    top: 5px;
-    left: 5px;
-    background-color: rgba(241, 196, 15, 0.9);
-    color: white;
-    padding: 5px 10px;
-    border-radius: 3px;
-    font-size: 0.9rem;
-    z-index: 30;
-    animation: pulse 1s infinite;
-  }
-
-/* Theater mode styles */
-.theater-container {
-  background-color: #000;
+  background-color: #2c3e50;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  padding: 1rem;
 }
 
+.room-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #eee;
+}
+
+.room-id {
+  display: flex;
+  align-items: center;
+  color: white;
+}
+
+.copy-button {
+  margin-left: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background-color: #f1f1f1;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.sync-status {
+  font-size: 0.9rem;
+}
+
+.syncing {
+  color: #e67e22;
+  animation: pulse 1s infinite;
+}
+
+.uploading {
+  color: #3498db;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.7; }
+  50% { opacity: 1; }
+  100% { opacity: 0.7; }
+}
+
+.synced {
+  color: #27ae60;
+}
+
+.main-content {
+  display: flex;
+  gap: 1rem;
+  height: calc(100vh - 200px);
+}
+
+.video-container {
+  flex: 1;
+  background-color: #000;
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 10;
+  pointer-events: auto !important;
+}
+
+.video-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  padding-bottom: 45px;
+}
+
+.video-wrapper video {
+  width: 100%;
+  height: 100%;
+  max-height: calc(100% - 50px);
+  object-fit: contain;
+  transition: object-fit 0.3s ease;
+}
+
+/* Simple resizable divider */
+.resizable-divider {
+  width: 10px;
+  background-color: rgba(44, 62, 80, 0.7);
+  cursor: col-resize;
+  height: 100%;
+  position: relative;
+}
+
+.resizable-divider:hover {
+  background-color: #3498db;
+}
+
+.resizable-divider::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  height: 100px;
+  width: 4px;
+  background-color: white;
+}
+
+/* Sidebar styles with improved constraints */
+.sidebar {
+  width: 300px;
+  min-width: 260px; /* Increased from 200px to ensure UI elements remain visible */
+  max-width: 800px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow: hidden;
+  transition: none; /* Remove transitions to avoid animation issues */
+}
+
+.users-panel, .chat-panel {
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  padding: 1rem;
+}
+
+.users-panel {
+  flex: 0 0 auto;
+}
+
+.users-panel h3, .chat-panel h3 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+  color: #333;
+}
+
+.users-panel ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+.users-panel li {
+  padding: 0.25rem 0;
+  font-size: 0.9rem;
+}
+
+.chat-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.message {
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.message-user {
+  font-weight: bold;
+  margin-right: 0.25rem;
+}
+
+.message-time {
+  font-size: 0.75rem;
+  color: #95a5a6;
+  margin-left: 0.5rem;
+}
+
+.system-message {
+  color: #7f8c8d;
+  font-style: italic;
+}
+
+/* Chat input styles with improved responsiveness */
+.chat-input {
+  display: flex;
+  gap: 0.5rem;
+  min-height: 38px; /* Ensure minimum height for the input area */
+}
+
+.chat-input input {
+  flex: 1;
+  min-width: 0; /* Allow input to shrink below its content size */
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.chat-input button {
+  padding: 0.5rem 0.75rem;
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap; /* Prevent button text from wrapping */
+  flex-shrink: 0; /* Prevent button from shrinking */
+  min-width: 60px; /* Ensure minimum width for the button */
+}
+
+/* Theater mode - fullscreen layout */
 .theater-mode {
   position: fixed;
   top: 0;
@@ -467,24 +234,63 @@
   flex-direction: row;
   height: 100vh !important;
   width: 100vw;
+  overflow: hidden;
 }
 
-.theater-mode .video-container {
-  flex: 3;
+/* Make RoomHeader appear/disappear in theater mode */
+.theater-mode .room-info {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2000;
+  background-color: rgba(0, 0, 0, 0.7);
+  padding: 8px 20px;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.theater-mode:hover .room-info {
+  opacity: 1;
+}
+
+/* Theater container (fullscreen element) */
+.theater-container {
+  width: 100vw;
   height: 100vh;
-  max-height: none;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* Header handling in theater mode */
+.theater-container header {
+  position: absolute;
+  top: -100px; /* Hide it by default */
+  opacity: 0;
+  transition: top 0.3s, opacity 0.3s;
+  z-index: 2000;
+  width: 100%;
+  background-color: rgba(0, 0, 0, 0.7);
+}
+
+.theater-container:hover header {
+  top: 0;
+  opacity: 1;
+}
+
+/* Theater mode styles */
+.theater-mode .video-container {
   border-radius: 0;
+  height: 100vh;
 }
 
 .theater-mode .sidebar {
-  flex: 1;
-  height: 100vh;
-  max-width: 350px;
   background: #1a1a1a;
   color: #fff;
+  height: 100vh;
   border-radius: 0;
   padding: 10px;
-  overflow-y: auto;
 }
 
 .theater-mode .users-panel, 
@@ -501,16 +307,30 @@
   color: #aaa;
 }
 
-.theater-room-info {
+/* Improve exit button positioning in fullscreen */
+.exit-theater-button {
   position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 1100;
-  background: rgba(0, 0, 0, 0.5);
-  border-radius: 4px;
-  padding: 5px 10px;
-  border: none;
+  top: 20px;
+  right: 20px;
+  background-color: rgba(0, 0, 0, 0.6);
   color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  z-index: 2500; /* Above header */
+  transition: background-color 0.2s, opacity 0.3s;
+  opacity: 0.3;
+}
+
+.exit-theater-button:hover {
+  background-color: rgba(231, 76, 60, 0.8);
+  opacity: 1;
+}
+
+.theater-mode:hover .exit-theater-button {
+  opacity: 0.7;
 }
 
 /* Make text inputs better visible in theater mode */
@@ -524,609 +344,22 @@
   color: #aaa;
 }
 
-/* Exit button for theater mode */
-.exit-theater {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: rgba(255, 255, 255, 0.2);
-  border: none;
-  color: white;
-  padding: 5px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  z-index: 1100;
-}
-
-.exit-theater:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-/* Theater mode button */
-.theater-button {
-  margin-right: 5px;
-}
-
-/* Streaming controls */
-.streaming-controls {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  width: 100%;
-  background-color: rgba(0, 0, 0, 0.8);
-  color: white;
-  padding: 2rem;
-}
-
-.streaming-controls h3 {
-  margin-top: 0;
-  margin-bottom: 1rem;
-  font-size: 1.5rem;
-  color: white;
-}
-
-.file-info {
-  margin-bottom: 1.5rem;
-  font-size: 1rem;
-  background-color: rgba(255, 255, 255, 0.1);
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.streaming-controls .primary-button {
-  background-color: #e74c3c;
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 4px;
-  font-size: 1.2rem;
-  cursor: pointer;
-  margin-bottom: 1rem;
-  transition: background-color 0.2s;
-}
-
-.streaming-controls .primary-button:hover {
-  background-color: #c0392b;
-}
-
-.streaming-controls .primary-button:disabled {
-  background-color: #95a5a6;
-  cursor: not-allowed;
-}
-
-.hint {
-  opacity: 0.7;
-  font-size: 0.9rem;
-  text-align: center;
-  margin-top: 1rem;
-}
-
-.streaming-status {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background-color: rgba(52, 152, 219, 0.8);
-  color: white;
-  padding: 5px 10px;
-  border-radius: 4px;
-  font-size: 0.9rem;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.streaming-status:before {
-  content: '';
-  display: block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: white;
-  animation: pulse 1.5s infinite;
-}
-
-.streaming {
-  color: #3498db;
-  animation: pulse 1s infinite;
-}
-
-.stop-button {
-  background-color: #e74c3c;
-  color: white;
-  margin-left: 10px;
-}
-
-.stop-button:hover {
-  background-color: #c0392b;
-}
-
-.error-message {
-  color: #e74c3c;
-  background-color: rgba(231, 76, 60, 0.2);
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  margin-top: 1rem;
-  margin-bottom: 1rem;
-}
-
-/* Theater mode enhancements for streaming */
-.theater-mode .streaming-controls {
-  height: 100vh;
-}
-
-.theater-mode .streaming-status {
-  right: 360px; /* Adjust based on sidebar width */
-}
-
-/* Viewer video styles */
-.viewer-video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-/* Viewer Stats Panel */
-.viewer-stats-panel {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  background-color: rgba(0, 0, 0, 0.7);
-  color: white;
-  padding: 10px;
-  border-radius: 5px;
-  max-width: 250px;
-  z-index: 20;
-}
-
-.viewer-stats-panel h4 {
-  margin-top: 0;
-  margin-bottom: 8px;
-  font-size: 14px;
-  color: white;
-}
-
-.viewer-stats-panel ul {
-  list-style-type: none;
-  padding: 0;
-  margin: 0;
-}
-
-.viewer-stat {
-  font-size: 12px;
-  padding: 4px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  display: flex;
-  justify-content: space-between;
-}
-
-.viewer-stat.buffering {
-  color: #f39c12;
-}
-
-.connection-quality {
-  margin-left: 8px;
-  padding: 2px 6px;
-  border-radius: 10px;
-  font-size: 10px;
-}
-
-.connection-quality.good {
-  background-color: #2ecc71;
-  color: white;
-}
-
-.connection-quality.fair {
-  background-color: #f39c12;
-  color: white;
-}
-
-.connection-quality.poor {
-  background-color: #e74c3c;
-  color: white;
-}
-
-.connection-quality.unknown, 
-.connection-quality.connecting {
-  background-color: #95a5a6;
-  color: white;
-}
-
-/* Stream Status Indicators */
-.stream-status {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 20;
-}
-
-.connecting-indicator, 
-.buffering-indicator {
-  background-color: rgba(0, 0, 0, 0.7);
-  color: white;
-  padding: 8px 12px;
-  border-radius: 4px;
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-}
-
-.connecting-indicator:before, 
-.buffering-indicator:before {
-  content: '';
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  margin-right: 8px;
-  animation: pulse 1.5s infinite;
-}
-
-.connecting-indicator:before {
-  background-color: #3498db;
-}
-
-.buffering-indicator:before {
-  background-color: #f39c12;
-}
-
-@keyframes pulse {
-  0% { opacity: 0.4; }
-  50% { opacity: 1; }
-  100% { opacity: 0.4; }
-}
-
-/* Theater mode adjustments */
-.theater-mode .viewer-stats-panel {
-  top: 50px;
-  left: 20px;
-}
-
-.theater-mode .stream-status {
-  top: 50px;
-  right: 20px;
-}
-
-.buffering {
-  color: #3498db;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.buffering:before {
-  content: '';
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: #3498db;
-  animation: pulse 1.5s infinite;
-}
-
-.buffer-indicator {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  background-color: rgba(0, 0, 0, 0.6);
-  padding: 5px 10px;
-  border-radius: 4px;
-  color: white;
-  font-size: 0.8rem;
-}
-
-.buffer-bar {
-  width: 100px;
-  height: 6px;
-  background-color: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-  margin-top: 3px;
-  overflow: hidden;
-}
-
-.buffer-progress {
-  height: 100%;
-  background-color: #3498db;
-  border-radius: 3px;
-  transition: width 0.3s ease;
-}
-
-/* Buffer indicator for viewers */
-.buffer-indicator {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  background-color: rgba(0, 0, 0, 0.6);
-  padding: 5px 10px;
-  border-radius: 4px;
-  color: white;
-  font-size: 0.8rem;
-}
-
-.buffer-bar {
-  width: 100px;
-  height: 6px;
-  background-color: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-  margin-top: 3px;
-  overflow: hidden;
-}
-
-.buffer-progress {
-  height: 100%;
-  background-color: #3498db;
-  border-radius: 3px;
-  transition: width 0.3s ease;
-}
-
-/* Connection status indicators */
-.connection-status {
-  position: absolute;
-  top: 15px;
-  left: 15px;
-  z-index: 30;
-  background-color: rgba(0, 0, 0, 0.7);
-  border-radius: 5px;
-  padding: 8px 12px;
-}
-
-.status-indicator {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: white;
-  font-size: 14px;
-}
-
-.status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-.status-dot.disconnected {
-  background-color: #95a5a6;
-}
-
-.status-dot.connecting {
-  background-color: #f39c12;
-  animation: pulse 1s infinite;
-}
-
-.status-dot.buffering {
-  background-color: #3498db;
-  animation: pulse 1s infinite;
-}
-
-.status-dot.error {
-  background-color: #e74c3c;
-  animation: pulse 1s infinite;
-}
-
-.status-dot.ready {
-  background-color: #2ecc71;
-}
-
-/* Viewer statistics panel for host */
-.viewer-stats-panel {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  background-color: rgba(0, 0, 0, 0.7);
-  color: white;
-  padding: 10px;
-  border-radius: 5px;
-  max-width: 250px;
-  z-index: 20;
-}
-
-.viewer-stats-panel h4 {
-  margin-top: 0;
-  margin-bottom: 8px;
-  font-size: 14px;
-  color: white;
-}
-
-.viewer-stats-panel ul {
-  list-style-type: none;
-  padding: 0;
-  margin: 0;
-}
-
-.viewer-stat {
-  font-size: 12px;
-  padding: 4px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  display: flex;
-  justify-content: space-between;
-}
-
-.viewer-stat.buffering {
-  color: #f39c12;
-}
-
-.connection-quality {
-  margin-left: 8px;
-  padding: 2px 6px;
-  border-radius: 10px;
-  font-size: 10px;
-}
-
-.connection-quality.good {
-  background-color: #2ecc71;
-  color: white;
-}
-
-.connection-quality.fair {
-  background-color: #f39c12;
-  color: white;
-}
-
-.connection-quality.poor {
-  background-color: #e74c3c;
-  color: white;
-}
-
-.connection-quality.unknown, 
-.connection-quality.connecting {
-  background-color: #95a5a6;
-  color: white;
-}
-
-/* Enhanced streaming controls */
-.streaming-controls {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  width: 100%;
-  background-color: rgba(0, 0, 0, 0.8);
-  color: white;
-  padding: 2rem;
-}
-
-.streaming-controls h3 {
-  margin-top: 0;
-  margin-bottom: 1rem;
-  font-size: 1.5rem;
-  color: white;
-}
-
-.file-info {
-  margin-bottom: 1.5rem;
-  font-size: 1rem;
-  background-color: rgba(255, 255, 255, 0.1);
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.streaming-controls .primary-button {
-  background-color: #e74c3c;
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 4px;
-  font-size: 1.2rem;
-  cursor: pointer;
-  margin-bottom: 1rem;
-  transition: background-color 0.2s;
-}
-
-.streaming-controls .primary-button:hover {
-  background-color: #c0392b;
-}
-
-.streaming-controls .primary-button:disabled {
-  background-color: #95a5a6;
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
-.hint {
-  opacity: 0.7;
-  font-size: 0.9rem;
-  text-align: center;
-  margin-top: 1rem;
-}
-
-.streaming-status {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background-color: rgba(52, 152, 219, 0.8);
-  color: white;
-  padding: 5px 10px;
-  border-radius: 4px;
-  font-size: 0.9rem;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.streaming-status:before {
-  content: '';
-  display: block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: white;
-  animation: pulse 1.5s infinite;
-}
-
-.stop-button {
-  background-color: #e74c3c;
-  color: white;
-  margin-left: 10px;
-}
-
-.stop-button:hover {
-  background-color: #c0392b;
-}
-
-.error-message {
-  color: #e74c3c;
-  background-color: rgba(231, 76, 60, 0.2);
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  margin-top: 1rem;
-  margin-bottom: 1rem;
-}
-
-/* Theater mode enhancements */
-.theater-mode .viewer-stats-panel,
-.theater-mode .connection-status {
-  top: 50px;
-}
-
-/* Animations */
-@keyframes pulse {
-  0% { opacity: 0.4; }
-  50% { opacity: 1; }
-  100% { opacity: 0.4; }
-}
-
-/* Responsive adjustments */
+/* Responsive styles */
 @media (max-width: 768px) {
-  .streaming-controls {
-    padding: 1rem;
+  .main-content {
+    flex-direction: column;
+    height: auto;
   }
   
-  .streaming-controls h3 {
-    font-size: 1.2rem;
+  .sidebar {
+    width: 100% !important;
   }
   
-  .file-info {
-    font-size: 0.9rem;
+  .resizable-divider {
+    display: none;
   }
   
-  .streaming-controls .primary-button {
-    font-size: 1rem;
-    padding: 10px 20px;
+  .chat-messages {
+    max-height: 200px;
   }
 }
-  
-  @media (max-width: 768px) {
-    .main-content {
-      flex-direction: column;
-      height: auto;
-    }
-    
-    .sidebar {
-      width: 100%;
-      margin-top: 1rem;
-    }
-    
-    .chat-messages {
-      max-height: 200px;
-    }
-  }
