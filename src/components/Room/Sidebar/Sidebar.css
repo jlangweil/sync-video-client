@@ -38,6 +38,7 @@
   margin-bottom: 0.5rem;
   padding-right: 0.5rem;
   max-height: 300px;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
 }
 
 /* Chat panel in chat-only mode doesn't need max-height */
@@ -85,6 +86,8 @@
 .chat-input {
   display: flex;
   gap: 0.5rem;
+  position: relative;
+  z-index: 2;
 }
 
 .chat-input input {
@@ -93,6 +96,7 @@
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 0.9rem;
+  min-height: 42px; /* Minimum touch target size */
 }
 
 .chat-input button {
@@ -103,6 +107,7 @@
   border-radius: 4px;
   cursor: pointer;
   min-width: 48px;
+  min-height: 42px; /* Minimum touch target size */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -112,6 +117,7 @@
 .chat-only-panel .chat-input button {
   padding: 0.5rem 1.5rem;
   font-weight: bold;
+  min-width: 70px;
 }
 
 .chat-input button:hover {
@@ -149,28 +155,39 @@
   color: #aaa;
 }
 
+/* iOS specific fixes */
+.ios-device .chat-messages {
+  -webkit-overflow-scrolling: touch;
+}
+
+.ios-device .chat-input {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.ios-device .chat-input input {
+  font-size: 16px; /* Prevent iOS from zooming on focus */
+}
+
+.ios-device .chat-input button {
+  font-size: 16px;
+}
+
+/* Fix for chat-only mode on iOS */
+.chat-only-panel.ios-device .chat-input {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  background-color: white;
+  padding: 0.5rem;
+  box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+}
+
 /* Responsive styles */
 @media (max-width: 768px) {
   .chat-messages {
     max-height: 200px;
   }
   
-  .chat-input {
-    flex-direction: column;
-  }
-  
-  .chat-input input {
-    width: 100%;
-  }
-  
-  .chat-input button {
-    width: 100%;
-    margin-top: 0.5rem;
-  }
-}
-
-/* Fix responsive issues only for standard room, not chat-only mode */
-@media (max-width: 768px) {
   .chat-panel:not(.chat-only-panel) .chat-input {
     flex-direction: column;
   }
@@ -178,5 +195,72 @@
   .chat-panel:not(.chat-only-panel) .chat-input button {
     width: 100%;
     margin-top: 0.5rem;
+  }
+  
+  /* Keep chat-only panel's input row layout on mobile */
+  .chat-only-panel .chat-input {
+    flex-direction: row;
+  }
+  
+  .chat-only-panel .chat-input input {
+    flex: 1;
+    margin-right: 0.5rem;
+  }
+  
+  .chat-only-panel .chat-input button {
+    width: auto;
+    margin-top: 0;
+  }
+}
+
+/* iPhone specific fixes */
+@media only screen and (device-width: 375px), 
+       only screen and (device-width: 390px), 
+       only screen and (device-width: 414px), 
+       only screen and (device-width: 428px),
+       only screen and (max-width: 480px) {
+  .chat-only-panel .chat-input {
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 0.8rem;
+    padding-bottom: calc(0.8rem + env(safe-area-inset-bottom, 0));
+    background-color: white;
+    box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+    margin-top: auto;
+  }
+  
+  .chat-only-panel .chat-input input {
+    min-height: 44px;
+    padding: 10px;
+    font-size: 16px;
+  }
+  
+  .chat-only-panel .chat-input button {
+    min-height: 44px;
+    min-width: 80px;
+    padding: 10px 15px;
+    font-size: 16px;
+    border-radius: 4px;
+  }
+}
+
+/* Fix Safari issues with flexbox and scrolling */
+@supports (-webkit-touch-callout: none) {
+  .chat-only-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  
+  .chat-only-panel .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+  }
+  
+  .chat-only-panel .chat-input {
+    flex-shrink: 0;
   }
 }

@@ -31,12 +31,36 @@ function ChatOnlyRoom() {
   const [copySuccess, setCopySuccess] = useState('');
   const [isHost, setIsHost] = useState(false);
   const [isUserListExpanded, setIsUserListExpanded] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
   
   // Socket reference
   const socketRef = useRef(null);
   
   // Chat container reference for auto-scrolling
   const chatContainerRef = useRef(null);
+  
+  // Detect iOS device on mount
+  useEffect(() => {
+    // Check if this is an iOS device
+    const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    setIsIOS(iOS);
+    
+    // Add viewport meta tag to prevent zooming when focusing on inputs
+    if (iOS) {
+      let viewportMeta = document.querySelector('meta[name="viewport"]');
+      if (!viewportMeta) {
+        viewportMeta = document.createElement('meta');
+        viewportMeta.name = 'viewport';
+        document.head.appendChild(viewportMeta);
+      }
+      viewportMeta.content = 'width=device-width, initial-scale=1, maximum-scale=1';
+    }
+    
+    // Add specific class for iOS devices
+    if (iOS) {
+      document.body.classList.add('ios-device');
+    }
+  }, []);
   
   // Helper to add system messages
   const addSystemMessage = (text) => {
@@ -130,8 +154,20 @@ function ChatOnlyRoom() {
       setMessages(prevMessages => [...prevMessages, message]);
     });
     
+    // Setup regular heartbeats to maintain connection
+    const heartbeatInterval = setInterval(() => {
+      if (socketRef.current && socketRef.current.connected) {
+        socketRef.current.emit('heartbeat', {
+          roomId,
+          timestamp: Date.now(),
+          isHost: storedIsHost
+        });
+      }
+    }, 25000); // Every 25 seconds
+    
     // Cleanup function
     return () => {
+      clearInterval(heartbeatInterval);
       socketRef.current.disconnect();
       localStorage.removeItem('chatOnly'); // Clean up chat-only flag on exit
     };
@@ -153,6 +189,27 @@ function ChatOnlyRoom() {
       })
       .catch(err => {
         console.error('Failed to copy:', err);
+        
+        // Fallback for iOS
+        if (isIOS) {
+          const textArea = document.createElement('textarea');
+          textArea.value = roomId;
+          textArea.style.position = 'absolute';
+          textArea.style.left = '-999999px';
+          document.body.appendChild(textArea);
+          textArea.focus();
+          textArea.select();
+          
+          try {
+            document.execCommand('copy');
+            setCopySuccess('Copied!');
+            setTimeout(() => setCopySuccess(''), 2000);
+          } catch (err) {
+            console.error('Fallback copy failed:', err);
+          }
+          
+          document.body.removeChild(textArea);
+        }
       });
   };
   
@@ -168,6 +225,16 @@ function ChatOnlyRoom() {
       });
       
       setNewMessage('');
+      
+      // For iOS, ensure the input remains focused
+      if (isIOS) {
+        const inputElement = document.querySelector('.chat-input input');
+        if (inputElement) {
+          setTimeout(() => {
+            inputElement.focus();
+          }, 10);
+        }
+      }
     }
   };
 
@@ -182,7 +249,7 @@ function ChatOnlyRoom() {
   };
 
   return (
-    <div className="chat-only-room">
+    <div className={`chat-only-room ${isIOS ? 'ios-device' : ''}`}>
       <div className="chat-only-header">
         <div className="header-left">
           <button onClick={handleBackToHome} className="back-button">
