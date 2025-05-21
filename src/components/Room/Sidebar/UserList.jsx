@@ -11,6 +11,7 @@ function UserList({ users, currentUserId }) {
             {user.username} 
             {user.id === currentUserId && ' (You)'}
             {user.isHost ? ' (Host)' : ''}
+            {user.isChatOnly ? ' (Chat Only)' : ''}
           </li>
         ))}
       </ul>

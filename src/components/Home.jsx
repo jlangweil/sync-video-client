@@ -25,7 +25,7 @@ function Home() {
   const [error, setError] = useState('');
   const [roomId, setRoomId] = useState('');
   const [username, setUsername] = useState('');
-  const [joining, setJoining] = useState(true); // Changed to true to default to Join Room tab
+  const [activeTab, setActiveTab] = useState('join'); // Changed to 'join' as default tab
   const [creatingRoom, setCreatingRoom] = useState(false);
   
   const navigate = useNavigate();
@@ -123,24 +123,50 @@ function Home() {
     navigate(`/room/${roomId}`);
   };
 
+  const handleJoinChatOnly = (e) => {
+    e.preventDefault();
+    
+    if (!roomId) {
+      setError('Please enter a room ID');
+      return;
+    }
+    
+    if (!username) {
+      setError('Please enter a username');
+      return;
+    }
+    
+    localStorage.setItem('username', username);
+    localStorage.setItem('isHost', 'false');
+    
+    // Use the dedicated chat route instead
+    navigate(`/chat/${roomId}`);
+  };
+
   return (
     <div className="home-container">
       <div className="tabs">
         <button 
-          className={joining ? 'active' : ''} 
-          onClick={() => setJoining(true)}
+          className={activeTab === 'join' ? 'active' : ''} 
+          onClick={() => setActiveTab('join')}
         >
           Join Room
         </button>
         <button 
-          className={!joining ? 'active' : ''} 
-          onClick={() => setJoining(false)}
+          className={activeTab === 'create' ? 'active' : ''} 
+          onClick={() => setActiveTab('create')}
         >
           Create Room
         </button>
+        <button 
+          className={activeTab === 'chat' ? 'active' : ''} 
+          onClick={() => setActiveTab('chat')}
+        >
+          Chat Only
+        </button>
       </div>
       
-      {joining ? (
+      {activeTab === 'join' && (
         <div className="join-room">
           <h2>Join an existing room</h2>
           <form onSubmit={handleJoinRoom}>
@@ -173,7 +199,9 @@ function Home() {
             </button>
           </form>
         </div>
-      ) : (
+      )}
+      
+      {activeTab === 'create' && (
         <div className="create-room">
           <h2>Create a new viewing room</h2>
           <form onSubmit={handleUpload}>
@@ -223,6 +251,54 @@ function Home() {
               The video will stream directly from your device to your viewers. 
               No uploading necessary!
             </p>
+          </form>
+        </div>
+      )}
+
+      {activeTab === 'chat' && (
+        <div className="chat-only">
+          <h2>Join chat only</h2>
+          <form onSubmit={handleJoinChatOnly}>
+            <div className="form-group">
+              <label htmlFor="chat-username">Your Name:</label>
+              <input
+                type="text"
+                id="chat-username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Enter your name"
+                required
+              />
+            </div>
+            
+            <div className="form-group">
+              <label htmlFor="chat-room-id">Room ID:</label>
+              <input
+                type="text"
+                id="chat-room-id"
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
+                placeholder="Enter room ID"
+                required
+              />
+            </div>
+            
+            <button type="submit" className="primary-button">
+              Join Chat Only
+            </button>
+            
+            <p className="info-text">
+              Join just the chat without video streaming. Perfect for mobile devices or when you want to conserve bandwidth.
+            </p>
+            
+            <div className="device-indicator">
+              <p><strong>Recommended for:</strong> Mobile phones, tablets, or connections with limited bandwidth</p>
+              <div className="device-icons">
+                <span className="device-icon">📱</span>
+                <span className="device-icon">💻</span>
+                <span className="device-icon">📶</span>
+              </div>
+            </div>
           </form>
         </div>
       )}

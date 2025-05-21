@@ -1,125 +1,182 @@
 .users-panel, .chat-panel {
-    background-color: #f9f9f9;
-    border-radius: 4px;
-    padding: 1rem;
-  }
-  
-  .users-panel {
-    flex: 0 0 auto;
-  }
-  
-  .users-panel h3, .chat-panel h3 {
-    margin-top: 0;
-    margin-bottom: 0.5rem;
-    font-size: 1rem;
-    color: #333;
-  }
-  
-  .users-panel ul {
-    list-style-type: none;
-    padding: 0;
-    margin: 0;
-  }
-  
-  .users-panel li {
-    padding: 0.25rem 0;
-    font-size: 0.9rem;
-  }
-  
-  .chat-panel {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-  }
-  
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  padding: 1rem;
+}
+
+.users-panel {
+  flex: 0 0 auto;
+}
+
+.users-panel h3, .chat-panel h3 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+  color: #333;
+}
+
+.users-panel ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+.users-panel li {
+  padding: 0.25rem 0;
+  font-size: 0.9rem;
+}
+
+.chat-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 0.5rem;
+  padding-right: 0.5rem;
+  max-height: 300px;
+}
+
+/* Chat panel in chat-only mode doesn't need max-height */
+.chat-only-panel .chat-messages {
+  max-height: none;
+}
+
+.message {
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+  padding: 0.5rem;
+  border-radius: 4px;
+  background-color: rgba(52, 152, 219, 0.05);
+}
+
+.message-user {
+  font-weight: bold;
+  margin-right: 0.25rem;
+}
+
+.message-text {
+  word-break: break-word;
+}
+
+.message-time {
+  font-size: 0.75rem;
+  color: #95a5a6;
+  margin-left: 0.5rem;
+  white-space: nowrap;
+}
+
+.system-message {
+  color: #7f8c8d;
+  font-style: italic;
+  background-color: transparent;
+}
+
+.empty-chat-message {
+  text-align: center;
+  color: #95a5a6;
+  font-style: italic;
+  margin-top: 2rem;
+}
+
+.chat-input {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chat-input input {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+.chat-input button {
+  padding: 0.5rem 1rem;
+  background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  min-width: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* For chat-only mode, we make the button larger */
+.chat-only-panel .chat-input button {
+  padding: 0.5rem 1.5rem;
+  font-weight: bold;
+}
+
+.chat-input button:hover {
+  background-color: #2980b9;
+}
+
+/* Theater mode styles */
+.theater-mode .users-panel, 
+.theater-mode .chat-panel {
+  background-color: #2a2a2a;
+  color: #fff;
+}
+
+.theater-mode .users-panel h3,
+.theater-mode .chat-panel h3 {
+  color: #ddd;
+}
+
+.theater-mode .message {
+  color: #eee;
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.theater-mode .system-message {
+  color: #aaa;
+}
+
+.theater-mode .chat-input input {
+  background-color: #333;
+  color: #fff;
+  border: 1px solid #444;
+}
+
+.theater-mode .chat-input input::placeholder {
+  color: #aaa;
+}
+
+/* Responsive styles */
+@media (max-width: 768px) {
   .chat-messages {
-    flex: 1;
-    overflow-y: auto;
-    margin-bottom: 0.5rem;
-    padding-right: 0.5rem;
-    max-height: 300px;
-  }
-  
-  .message {
-    margin-bottom: 0.5rem;
-    font-size: 0.9rem;
-  }
-  
-  .message-user {
-    font-weight: bold;
-    margin-right: 0.25rem;
-  }
-  
-  .message-time {
-    font-size: 0.75rem;
-    color: #95a5a6;
-    margin-left: 0.5rem;
-  }
-  
-  .system-message {
-    color: #7f8c8d;
-    font-style: italic;
+    max-height: 200px;
   }
   
   .chat-input {
-    display: flex;
-    gap: 0.5rem;
+    flex-direction: column;
   }
   
   .chat-input input {
-    flex: 1;
-    padding: 0.5rem;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    font-size: 0.9rem;
+    width: 100%;
   }
   
   .chat-input button {
-    padding: 0.5rem 1rem;
-    background-color: #3498db;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+}
+
+/* Fix responsive issues only for standard room, not chat-only mode */
+@media (max-width: 768px) {
+  .chat-panel:not(.chat-only-panel) .chat-input {
+    flex-direction: column;
   }
   
-  .chat-input button:hover {
-    background-color: #2980b9;
+  .chat-panel:not(.chat-only-panel) .chat-input button {
+    width: 100%;
+    margin-top: 0.5rem;
   }
-  
-  /* Theater mode styles */
-  .theater-mode .users-panel, 
-  .theater-mode .chat-panel {
-    background-color: #2a2a2a;
-    color: #fff;
-  }
-  
-  .theater-mode .users-panel h3,
-  .theater-mode .chat-panel h3 {
-    color: #ddd;
-  }
-  
-  .theater-mode .message {
-    color: #eee;
-  }
-  
-  .theater-mode .system-message {
-    color: #aaa;
-  }
-  
-  .theater-mode .chat-input input {
-    background-color: #333;
-    color: #fff;
-    border: 1px solid #444;
-  }
-  
-  .theater-mode .chat-input input::placeholder {
-    color: #aaa;
-  }
-  
-  /* Responsive styles */
-  @media (max-width: 768px) {
-    .chat-messages {
-      max-height: 200px;
-    }
-  }
+}

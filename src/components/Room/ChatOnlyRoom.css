@@ -1,0 +1,287 @@
+/* ChatOnlyRoom.css */
+.chat-only-room {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100vw;
+    background-color: #f5f5f5;
+    overflow: hidden;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 100;
+  }
+  
+  .chat-only-header {
+    background-color: #2c3e50;
+    color: white;
+    padding: 0.75rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+  }
+  
+  .header-left, .header-right {
+    flex: 1;
+  }
+  
+  .header-center {
+    flex: 2;
+    text-align: center;
+  }
+  
+  .header-center h1 {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+  
+  .room-id-display {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    margin-top: 4px;
+  }
+  
+  .copy-button {
+    margin-left: 8px;
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: background-color 0.2s;
+  }
+  
+  .copy-button:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
+  
+  .back-button {
+    background: none;
+    border: none;
+    color: white;
+    padding: 4px 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    font-size: 0.9rem;
+  }
+  
+  .back-button span {
+    margin-right: 4px;
+    font-size: 1.2rem;
+  }
+  
+  .user-list-toggle {
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    color: white;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    transition: background-color 0.2s;
+  }
+  
+  .user-list-toggle:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
+  
+  .user-count {
+    font-size: 0.75rem;
+    font-weight: bold;
+  }
+  
+  .user-icon {
+    font-size: 1.1rem;
+  }
+  
+  .chat-only-content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+  }
+  
+  .user-list-panel {
+    background-color: white;
+    width: 250px;
+    max-width: 100%;
+    overflow-y: auto;
+    transition: transform 0.3s ease;
+    flex-shrink: 0;
+    box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+    z-index: 5;
+  }
+  
+  .user-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid #eee;
+  }
+  
+  .user-list-header h3 {
+    margin: 0;
+    font-size: 1rem;
+  }
+  
+  .close-user-list {
+    background: none;
+    border: none;
+    font-size: 1.1rem;
+    cursor: pointer;
+    color: #95a5a6;
+    padding: 4px;
+  }
+  
+  .chat-only-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background-color: white;
+    overflow: hidden;
+  }
+  
+  /* ChatPanel modifications for chat-only mode */
+  .chat-only-room .chat-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 1rem;
+    box-sizing: border-box;
+  }
+  
+  .chat-only-room .chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+    margin-bottom: 1rem;
+  }
+  
+  .chat-only-room .chat-input {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0 0 0.5rem 0;
+  }
+  
+  .chat-only-room .chat-input input {
+    flex: 1;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+  }
+  
+  .chat-only-room .chat-input button {
+    padding: 0.75rem 1.25rem;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+  
+  .chat-only-room .chat-input button:hover {
+    background-color: #2980b9;
+  }
+  
+  /* Mobile responsiveness */
+  @media (max-width: 768px) {
+    .user-list-panel {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      transform: translateX(-100%);
+    }
+    
+    .user-list-panel.expanded {
+      transform: translateX(0);
+    }
+    
+    .room-id-display {
+      flex-direction: column;
+      align-items: center;
+    }
+    
+    .copy-button {
+      margin-left: 0;
+      margin-top: 4px;
+    }
+    
+    .chat-only-room .chat-input {
+      flex-direction: column;
+    }
+    
+    .chat-only-room .chat-input button {
+      padding: 0.5rem;
+    }
+  }
+  
+  /* Landscape mode adjustments */
+  @media (max-width: 768px) and (orientation: landscape) {
+    .chat-only-header {
+      padding: 0.5rem;
+    }
+    
+    .header-center h1 {
+      font-size: 1rem;
+    }
+    
+    .chat-only-room .chat-messages {
+      margin-bottom: 0.5rem;
+    }
+    
+    .chat-only-room .chat-input input {
+      padding: 0.5rem;
+    }
+  }
+  
+  /* Message styling (may need adjustments based on existing styles) */
+  .message {
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background-color: #f9f9f9;
+  }
+  
+  .message-user {
+    font-weight: bold;
+    margin-right: 0.25rem;
+  }
+  
+  .message-time {
+    font-size: 0.75rem;
+    color: #95a5a6;
+    margin-left: 0.5rem;
+  }
+  
+  .system-message {
+    color: #7f8c8d;
+    font-style: italic;
+    background-color: transparent;
+  }
+  
+  /* For devices with notch/safe area */
+  @supports (padding-top: env(safe-area-inset-top)) {
+    .chat-only-room {
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+  }
