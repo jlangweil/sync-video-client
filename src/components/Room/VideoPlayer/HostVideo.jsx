@@ -31,30 +31,71 @@ function HostVideo({
   // Use a ref to ensure video element is created properly
   const videoContainerRef = useRef(null);
   
-  // Create video element immediately on mount
+  // Create video element immediately on mount with consistent styling
   useEffect(() => {
     if (!hostVideoRef.current) {
-      console.log('Creating video element');
+      console.log('Creating host video element');
       // Create a new video element if it doesn't exist
       hostVideoRef.current = document.createElement('video');
+      
+      // Apply consistent styling to match viewer
       hostVideoRef.current.controls = true;
       hostVideoRef.current.playsInline = true;
       hostVideoRef.current.autoPlay = false;
       hostVideoRef.current.muted = false;
+      hostVideoRef.current.preload = 'metadata';
+      
+      // Set consistent dimensions and styling
       hostVideoRef.current.style.width = '100%';
       hostVideoRef.current.style.height = '100%';
-      hostVideoRef.current.style.objectFit = videoFit;
-      hostVideoRef.current.className = 'host-video';
+      hostVideoRef.current.style.maxWidth = '100%';
+      hostVideoRef.current.style.maxHeight = '100%';
+      hostVideoRef.current.style.objectFit = videoFit || 'contain';
+      hostVideoRef.current.style.display = 'block';
+      hostVideoRef.current.style.margin = '0 auto';
+      hostVideoRef.current.style.backgroundColor = '#000';
+      hostVideoRef.current.style.position = 'relative';
+      hostVideoRef.current.style.zIndex = '1';
+      
+      hostVideoRef.current.className = 'host-video maintain-aspect';
+      
+      // Add metadata loaded handler for debugging
+      hostVideoRef.current.onloadedmetadata = () => {
+        console.log('Host video metadata loaded:', {
+          videoWidth: hostVideoRef.current.videoWidth,
+          videoHeight: hostVideoRef.current.videoHeight,
+          duration: hostVideoRef.current.duration,
+          clientWidth: hostVideoRef.current.clientWidth,
+          clientHeight: hostVideoRef.current.clientHeight
+        });
+      };
+      
+      // Add resize handler for debugging
+      hostVideoRef.current.onresize = () => {
+        console.log('Host video resized:', {
+          videoWidth: hostVideoRef.current.videoWidth,
+          videoHeight: hostVideoRef.current.videoHeight,
+          clientWidth: hostVideoRef.current.clientWidth,
+          clientHeight: hostVideoRef.current.clientHeight
+        });
+      };
       
       // Add to the DOM
       if (videoContainerRef.current) {
         videoContainerRef.current.appendChild(hostVideoRef.current);
-        console.log('Video element added to DOM');
+        console.log('Host video element added to DOM');
       } else {
         console.error('Video container ref not available');
       }
     }
-  }, []);
+  }, [videoFit]);
+
+  // Update video fit when prop changes
+  useEffect(() => {
+    if (hostVideoRef.current) {
+      hostVideoRef.current.style.objectFit = videoFit || 'contain';
+    }
+  }, [videoFit]);
 
   // Fix the local file indicator
   useEffect(() => {
@@ -236,7 +277,13 @@ function HostVideo({
       videoElement: {
         created: hostVideoRef.current ? 'Yes' : 'No',
         readyState: hostVideoRef.current ? hostVideoRef.current.readyState : 'N/A',
-        src: hostVideoRef.current && hostVideoRef.current.src ? 'Set' : 'Not set'
+        src: hostVideoRef.current && hostVideoRef.current.src ? 'Set' : 'Not set',
+        dimensions: hostVideoRef.current ? {
+          videoWidth: hostVideoRef.current.videoWidth,
+          videoHeight: hostVideoRef.current.videoHeight,
+          clientWidth: hostVideoRef.current.clientWidth,
+          clientHeight: hostVideoRef.current.clientHeight
+        } : 'N/A'
       }
     };
     
@@ -245,30 +292,46 @@ function HostVideo({
     setShowDebug(true);
   };
 
-  // Fix video container style
+  // Enhanced video container style for consistent positioning
   const videoWrapperStyle = {
     position: 'relative',
     width: '100%',
     height: '100%',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    backgroundColor: '#000',
+    overflow: 'hidden'
   };
 
   return (
     <div className="video-wrapper" style={videoWrapperStyle} ref={videoContainerRef}>
       {isStreaming ? (
         // The video is already in the DOM via the ref, controlled by WebRTCProvider
-        <div className="viewer-stats-panel">
-          <h4>Viewer Stats</h4>
+        <div className="viewer-stats-panel" style={{
+          position: 'absolute',
+          top: '15px',
+          left: '15px',
+          background: 'rgba(0,0,0,0.7)',
+          color: 'white',
+          padding: '10px',
+          borderRadius: '4px',
+          fontSize: '12px',
+          zIndex: 20
+        }}>
+          <h4 style={{ margin: '0 0 8px 0', fontSize: '14px' }}>Viewer Stats</h4>
           {Object.keys(peerConnections).length === 0 ? (
-            <p>No viewers connected yet</p>
+            <p style={{ margin: 0 }}>No viewers connected yet</p>
           ) : (
-            <ul>
+            <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
               {Object.keys(peerConnections).map(viewerId => (
-                <li key={viewerId} className="viewer-stat">
+                <li key={viewerId} style={{ margin: '4px 0' }} className="viewer-stat">
                   {viewerId.substring(0, 6)}: Connected
-                  <span className="connection-quality good">
+                  <span className="connection-quality good" style={{ 
+                    marginLeft: '8px', 
+                    color: '#2ecc71',
+                    fontSize: '11px' 
+                  }}>
                     (streaming)
                   </span>
                 </li>
@@ -277,7 +340,7 @@ function HostVideo({
           )}
         </div>
       ) : (
-        // Inline style for the streaming button at bottom center
+        // Streaming button at bottom center
         <div style={{
           position: 'absolute',
           bottom: '20px',
@@ -294,18 +357,33 @@ function HostVideo({
               color: 'white',
               border: 'none',
               borderRadius: '4px',
-              padding: '10px 24px',
-              fontSize: '1rem',
+              padding: '12px 28px',
+              fontSize: '16px',
               fontWeight: '500',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
-              boxShadow: '0 2px 5px rgba(0,0,0,0.3)'
+              gap: '10px',
+              boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+              transition: 'all 0.2s'
             }}
             disabled={!videoUrl.startsWith('local:')}
+            onMouseEnter={(e) => {
+              if (!e.target.disabled) {
+                e.target.style.backgroundColor = '#c0392b';
+                e.target.style.transform = 'translateY(-2px)';
+                e.target.style.boxShadow = '0 4px 8px rgba(0,0,0,0.4)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!e.target.disabled) {
+                e.target.style.backgroundColor = '#e74c3c';
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 2px 5px rgba(0,0,0,0.3)';
+              }
+            }}
           >
-            <span style={{ fontSize: '1.2rem' }}>▶</span>
+            <span style={{ fontSize: '18px' }}>▶</span>
             Start Streaming
           </button>
         </div>
@@ -322,42 +400,21 @@ function HostVideo({
         </div>
       )}
       
-      {/* Viewer stats panel for host */}
-      {isStreaming && (
-        <div className="viewer-stats-panel">
-          <h4>Viewer Stats</h4>
-          {Object.keys(peerConnections).length === 0 ? (
-            <p>No viewers connected yet</p>
-          ) : (
-            <ul>
-              {Object.keys(peerConnections).map(viewerId => (
-                <li key={viewerId} className="viewer-stat">
-                  {viewerId.substring(0, 6)}: Connected
-                  <span className="connection-quality good">
-                    (streaming)
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-      
       {/* Error message */}
       {streamError && !isStreaming && (
         <div style={{
           position: 'absolute',
-          bottom: '70px',
-          left: '0',
-          right: '0',
-          backgroundColor: 'rgba(231, 76, 60, 0.8)',
+          bottom: '80px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: 'rgba(231, 76, 60, 0.9)',
           color: 'white',
-          padding: '10px',
+          padding: '12px 20px',
           textAlign: 'center',
           borderRadius: '4px',
-          margin: '0 auto',
           maxWidth: '80%',
-          zIndex: 51
+          zIndex: 51,
+          fontSize: '14px'
         }}>
           {streamError}
         </div>

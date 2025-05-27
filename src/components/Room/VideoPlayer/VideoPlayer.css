@@ -156,7 +156,7 @@
   background-color: #2ecc71;
 }
 
-/* NEW STYLES TO FIX VIDEO CENTERING AND BUTTON ISSUES */
+/* UPDATED STYLES TO FIX VIDEO CENTERING AND SIZING IN THEATER MODE */
 
 /* Hide theater and fullscreen buttons in theater or fullscreen mode */
 .theater-mode .theater-button,
@@ -173,7 +173,7 @@
   z-index: -1 !important;
 }
 
-/* Center the video in the container */
+/* Center the video in the container - UPDATED FOR PROPER SIZING */
 .video-wrapper {
   display: flex !important;
   justify-content: center !important;
@@ -184,34 +184,75 @@
   margin: 0 auto !important;
 }
 
-/* Make video stretch properly */
+/* FIXED: Make video take up maximum available space while preserving aspect ratio */
 .viewer-video {
+  width: 100% !important;
+  height: 100% !important;
   max-width: 100% !important;
   max-height: 100% !important;
+  object-fit: contain !important;
   margin: 0 auto !important;
   display: block !important;
   position: relative !important;
   z-index: 5 !important;
 }
 
-/* Ensure theater mode properly centers video */
+/* FIXED: Theater mode video container should use full available width */
 .theater-mode .video-container {
   display: flex !important;
   justify-content: center !important;
   align-items: center !important;
   width: 100% !important;
-  height: 100% !important;
+  height: 100vh !important;
   padding: 0 !important;
   margin: 0 !important;
+  /* Remove any max-width constraints in theater mode */
+  max-width: none !important;
 }
 
-/* Fix any potential offset issues */
+/* FIXED: Video wrapper in theater mode should use full available space */
 .theater-mode .video-wrapper {
-  margin: 0 auto !important;
-  left: 0 !important;
-  right: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
   padding: 0 !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  /* Ensure it uses the full width minus sidebar */
+  max-width: none !important;
+}
+
+/* FIXED: Theater mode video should fill available space optimally */
+.theater-mode video,
+.theater-mode .viewer-video {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100vh !important;
+  object-fit: contain !important;
+  position: relative !important;
+  margin: 0 auto !important;
+  display: block !important;
+}
+
+/* FIXED: Ensure the main content in theater mode uses proper flex layout */
+.theater-mode .main-content {
+  display: flex !important;
+  flex-direction: row !important;
   width: 100vw !important;
+  height: 100vh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* FIXED: Ensure video container gets proper share of space in theater mode */
+.theater-mode .main-content .video-container {
+  flex: 1 !important;
+  width: auto !important;
+  /* Remove any width calculations that might constrain it */
+  max-width: none !important;
+  min-width: 0 !important;
 }
 
 /* Handle any inline specific controls that need to be hidden */
@@ -220,14 +261,6 @@ body .theater-mode button[class*="fullscreen"],
 body .theater-mode .control-button,
 body .theater-mode div[class*="control"] {
   display: none !important;
-}
-
-/* Fix theater mode video positioning */
-.theater-mode video {
-  position: relative !important;
-  margin: 0 auto !important;
-  display: block !important;
-  max-height: 100vh !important;
 }
 
 /* Higher-specificity fix for Theater Mode button visible in screenshot */
@@ -251,7 +284,7 @@ body .theater-mode .video-controls {
   display: none !important;
 }
 
-/* Fix position for the video container */
+/* FIXED: Normal mode video container positioning */
 .video-container {
   position: relative !important;
   display: flex !important;
@@ -269,4 +302,36 @@ body .theater-mode .video-controls {
 #theater_mode_button,
 #fullscreen_button {
   display: none !important;
+}
+
+/* ADDED: Ensure host video (video element) also gets proper sizing */
+.theater-mode .host-video,
+.theater-mode video[class*="host"] {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100vh !important;
+  object-fit: contain !important;
+}
+
+/* ADDED: Fix for when video container has inline width styles */
+.theater-mode .video-container[style*="width"] {
+  width: auto !important;
+  flex: 1 !important;
+}
+
+/* ADDED: Ensure sidebar doesn't interfere with video sizing in theater mode */
+.theater-mode .sidebar {
+  flex-shrink: 0 !important;
+  width: 300px !important;
+  max-width: 300px !important;
+}
+
+/* ADDED: Alternative approach - force video to use calc() for available space */
+.theater-mode .video-wrapper video {
+  width: 100% !important;
+  height: 100% !important;
+  /* Use calc to account for any potential margins/padding */
+  max-width: calc(100vw - 320px) !important; /* Account for sidebar + padding */
+  max-height: 100vh !important;
 }

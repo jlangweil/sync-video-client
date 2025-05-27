@@ -43,15 +43,6 @@ function ViewerVideo({
     }
   }, [connectionStatus]);
 
-  // Request fullscreen function
-  const requestFullscreen = () => {
-    if (viewerVideoRef.current && viewerVideoRef.current.requestFullscreen) {
-      viewerVideoRef.current.requestFullscreen();
-    } else if (viewerVideoRef.current && viewerVideoRef.current.webkitRequestFullscreen) {
-      viewerVideoRef.current.webkitRequestFullscreen();
-    }
-  };
-
   // Get connection status text
   const getConnectionStatusText = () => {
     switch (connectionStatus) {
@@ -80,14 +71,32 @@ function ViewerVideo({
     }
   };
 
-  // Define video container styles to ensure proper centering
+  // Enhanced video container styles for consistent positioning
   const videoContainerStyle = {
     display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
-    width: '100%',
-    height: '100%',
-    position: 'relative'
+    width: isTheaterMode ? '100vw' : '100%',
+    height: isTheaterMode ? '100vh' : '100%',
+    position: 'relative',
+    backgroundColor: '#000',
+    overflow: 'hidden'
+  };
+
+  // Enhanced video styles to match host exactly
+  const videoStyle = {
+    width: isTheaterMode ? '100vw' : '100%',
+    height: isTheaterMode ? '100vh' : '100%',
+    maxWidth: isTheaterMode ? '100vw' : '100%',
+    maxHeight: isTheaterMode ? '100vh' : '100%',
+    minWidth: isTheaterMode ? '100vw' : 'auto',
+    minHeight: isTheaterMode ? '100vh' : 'auto',
+    objectFit: videoFit || 'contain',
+    display: 'block',
+    margin: '0 auto',
+    backgroundColor: '#000',
+    position: 'relative',
+    zIndex: 1
   };
 
   return (
@@ -98,15 +107,29 @@ function ViewerVideo({
           <video
             ref={viewerVideoRef}
             controls={false}
-            style={{ 
-              objectFit: videoFit,
-              maxWidth: '100%',
-              maxHeight: '100%',
-              margin: '0 auto',
-              display: 'block'
-            }}
-            className="viewer-video"
+            style={videoStyle}
+            className="viewer-video maintain-aspect"
             playsInline
+            muted={false}
+            preload="metadata"
+            onLoadedMetadata={() => {
+              console.log('Viewer video metadata loaded:', {
+                videoWidth: viewerVideoRef.current?.videoWidth,
+                videoHeight: viewerVideoRef.current?.videoHeight,
+                duration: viewerVideoRef.current?.duration
+              });
+            }}
+            onResize={() => {
+              // Log when video dimensions change to help debug sizing issues
+              if (viewerVideoRef.current) {
+                console.log('Viewer video resized:', {
+                  videoWidth: viewerVideoRef.current.videoWidth,
+                  videoHeight: viewerVideoRef.current.videoHeight,
+                  clientWidth: viewerVideoRef.current.clientWidth,
+                  clientHeight: viewerVideoRef.current.clientHeight
+                });
+              }
+            }}
           />
           
           {/* Connection status indicator */}
@@ -159,25 +182,68 @@ function ViewerVideo({
             </div>
           )}
           
-          {/* Controls completely removed - user will use ESC key instead */}
-          
           {/* Only show this message when not in theater/fullscreen mode */}
           {!isTheaterMode && !isFullscreen && (
-            <div className="viewer-message">
-              <p>Streaming from host - only the host can control playback</p>
+            <div 
+              className="viewer-message"
+              style={{
+                position: 'absolute',
+                bottom: '20px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                backgroundColor: 'rgba(0,0,0,0.7)',
+                color: 'white',
+                padding: '8px 16px',
+                borderRadius: '4px',
+                fontSize: '14px',
+                zIndex: 10,
+                textAlign: 'center',
+                whiteSpace: 'nowrap'
+              }}
+            >
             </div>
           )}
         </>
       ) : videoUrl && videoUrl.startsWith('local:') ? (
         // Host has a file but hasn't started streaming yet
-        <div className="waiting-for-video">
-          <p>Host has selected: {videoUrl.replace('local:', '')}</p>
-          <p>Waiting for host to start streaming...</p>
+        <div 
+          className="waiting-for-video"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            color: 'white',
+            textAlign: 'center',
+            padding: '20px'
+          }}
+        >
+          <p style={{ margin: '10px 0', fontSize: '16px' }}>
+            Host has selected: {videoUrl.replace('local:', '')}
+          </p>
+          <p style={{ margin: '10px 0', fontSize: '14px', opacity: 0.8 }}>
+            Waiting for host to start streaming...
+          </p>
         </div>
       ) : (
         // No video available yet
-        <div className="waiting-for-video">
-          <p>Waiting for host to select a video...</p>
+        <div 
+          className="waiting-for-video"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '100%',
+            color: 'white',
+            textAlign: 'center',
+            padding: '20px'
+          }}
+        >
+          <p style={{ margin: '10px 0', fontSize: '16px' }}>
+            Waiting for host to select a video...
+          </p>
         </div>
       )}
     </div>
