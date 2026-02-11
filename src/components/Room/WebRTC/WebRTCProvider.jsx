@@ -72,6 +72,9 @@ export const WebRTCProvider = ({ 
   const disconnectedViewersRef = useRef({});
   const reconnectAttemptsRef = useRef({});
   const maxReconnectAttempts = 5;
+  const isStreamingRef = useRef(false);
+  const isSeekInProgressRef = useRef(false);
+  const progressIntervalRef = useRef(null);
 
   // Load file URL from sessionStorage
   useEffect(() => {
@@ -94,139 +97,20 @@ export const WebRTCProvider = ({ 
   }, [isHost, addSystemMessage]);
 
   // Handle seek operations
+  // captureStream() returns a live MediaStream tied to the video element —
+  // it automatically follows seeks. No peer teardown needed.
   const handleSeekEvent = (currentTime) => {
-    if (!isHost || !isStreaming) return;
-    
-    console.log('Handling seek event to time:', currentTime);
-    setIsSeekInProgress(true);
-    
-    // Store list of current viewers to reconnect
-    disconnectedViewersRef.current = { ...peerConnections };
-    
-    // Notify viewers about the seek operation
-    if (socketRef.current) {
-      socketRef.current.emit('videoSeekOperation', {
-        roomId,
-        seekTime: currentTime
-      });
-    }
-    
-    // Close current connections to prepare for reconnection
-    Object.keys(peersRef.current).forEach(peerId => {
-      if (peersRef.current[peerId]) {
-        console.log(`Temporarily closing connection to ${peerId} for seek operation`);
-        peersRef.current[peerId].close();
-      }
-    });
-    
-    // Reset peer connections
-    peersRef.current = {};
-    setPeerConnections({});
-    
-    // Recreate the stream after a short delay
-    setTimeout(async () => {
-      try {
-        console.log('Recreating stream after seek');
-        await refreshStreamAfterSeek();
-        
-        // Start reconnection process
-        setIsReconnecting(true);
-        reconnectToViewers();
-      } catch (err) {
-        console.error('Error refreshing stream after seek:', err);
-        setStreamError(`Seek failed: ${err.message}. Try refreshing the page.`);
-        setIsSeekInProgress(false);
-      }
-    }, 500);
-  };
+   if (!isHost || !isStreamingRef.current) return;
 
-  // Refresh stream after seek without restarting everything
-  const refreshStreamAfterSeek = async () => {
-    if (!hostVideoRef.current || !isStreaming) {
-      console.error('Cannot refresh stream: Video element or stream not available');
-      return false;
-    }
-    
-    try {
-      // Ensure video is in the right state
-      console.log('Refreshing video stream after seek');
-      
-      // Recapture the stream
-      let newStream;
-      
-      if (hostVideoRef.current.captureStream) {
-        newStream = hostVideoRef.current.captureStream();
-      } else if (hostVideoRef.current.mozCaptureStream) {
-        newStream = hostVideoRef.current.mozCaptureStream();
-      }
-      
-      if (!newStream) {
-        throw new Error('Failed to recapture stream from video');
-      }
-      
-      // Update the stream reference
-      if (localStreamRef.current) {
-        // Do NOT stop old tracks here, as this would terminate connections on pause
-        // Instead, replace tracks on existing RTCPeerConnections if needed,
-        // but for simple pause/play, the stream itself remains active.
-        console.log('Replacing existing stream with new captured stream.');
-      }
-      
-      localStreamRef.current = newStream;
-      console.log('New stream created with tracks:', newStream.getTracks().length);
-      
-      return true;
-    } catch (err) {
-      console.error('Error refreshing stream:', err);
-      return false;
-    }
-  };
+   console.log('Handling seek event to time:', currentTime);
 
-  // Reconnect to viewers after seek
-  const reconnectToViewers = () => {
-    const disconnectedIds = Object.keys(disconnectedViewersRef.current);
-    console.log(`Attempting to reconnect to ${disconnectedIds.length} viewers`);
-    
-    if (disconnectedIds.length === 0) {
-      setIsSeekInProgress(false);
-      setIsReconnecting(false);
-      return;
-    }
-    
-    // Initialize reconnect attempts if needed
-    disconnectedIds.forEach(peerId => {
-      if (!reconnectAttemptsRef.current[peerId]) {
-        reconnectAttemptsRef.current[peerId] = 0;
-      }
-    });
-    
-    // Attempt to call each disconnected viewer
-    disconnectedIds.forEach(async (peerId) => {
-      if (reconnectAttemptsRef.current[peerId] < maxReconnectAttempts) {
-        reconnectAttemptsRef.current[peerId]++;
-        console.log(`Reconnect attempt ${reconnectAttemptsRef.current[peerId]} to ${peerId}`);
-        
-        try {
-          await callPeer(peerId);
-        } catch (err) {
-          console.error(`Failed to reconnect to ${peerId}:`, err);
-        }
-      } else {
-        console.warn(`Max reconnect attempts reached for ${peerId}`);
-        delete disconnectedViewersRef.current[peerId];
-      }
-    });
-    
-    // Check if we still have viewers to reconnect to
-    if (Object.keys(disconnectedViewersRef.current).length > 0) {
-      // Try again after a delay
-      setTimeout(reconnectToViewers, 2000);
-    } else {
-      console.log('Reconnection process completed');
-      setIsSeekInProgress(false);
-      setIsReconnecting(false);
-      reconnectAttemptsRef.current = {};
-    }
+   if (socketRef.current) {
+    socketRef.current.emit('videoSeekOperation', {
+     roomId,
+     seekTime: currentTime,
+     sourceTimestamp: Date.now()
+    });
+   }
   };
 
   // Handle peer ID registrations
@@ -249,47 +133,37 @@ export const WebRTCProvider = ({ 
       }
     };
     
-    // Handle seek notifications from the host
-    const handleSeekNotification = ({ seekTime }) => {
-      if (!isHost && viewerVideoRef.current) {
-        console.log('Host seeking to:', seekTime);
-        // Update viewer UI to show we're waiting for reconnection
-        setConnectionStatus('buffering');
-        addSystemMessage('Host is seeking to a new position, reconnecting...');
-      }
-    };
+   // Handle seek notifications from the host
+   const handleSeekNotification = ({ seekTime }) => {
+    if (!isHost && viewerVideoRef.current) {
+     console.log('Host seeking to:', seekTime);
+     setConnectionStatus('buffering');
+     addSystemMessage(`Host is seeking, please wait...`);
+    }
+   };
 
-    // Handle host's video pause/play events
-    const handleHostVideoPlayPause = ({ paused }) => {
-        if (!isHost && viewerVideoRef.current) {
-            console.log(`Host video is ${paused ? 'paused' : 'playing'}`);
-            if (paused) {
-                viewerVideoRef.current.pause();
-                setConnectionStatus('paused'); // Indicate paused state for viewer
-                addSystemMessage('Host paused the video.');
-            } else {
-                viewerVideoRef.current.play()
-                    .then(() => {
-                        console.log('Viewer video resumed playing.');
-                        setConnectionStatus('ready');
-                    })
-                    .catch(err => {
-                        console.error('Error resuming viewer video:', err);
-                        addSystemMessage('Click to play the video (browser autoplay restriction)');
-                    });
-            }
-        }
-    };
-    
-    socketRef.current.on('peer-id', handlePeerIdRegistration);
-    socketRef.current.on('videoSeekOperation', handleSeekNotification);
-    socketRef.current.on('hostVideoPlayPause', handleHostVideoPlayPause); // New listener
-    
-    return () => {
-      socketRef.current.off('peer-id', handlePeerIdRegistration);
-      socketRef.current.off('videoSeekOperation', handleSeekNotification);
-      socketRef.current.off('hostVideoPlayPause', handleHostVideoPlayPause); // Cleanup
-    };
+   // Handle video state updates — used by viewers to mirror host pause/play
+   const handleVideoStateUpdate = ({ isPlaying }) => {
+    if (!isHost && viewerVideoRef.current) {
+     if (isPlaying) {
+      viewerVideoRef.current.play()
+       .then(() => setConnectionStatus('ready'))
+       .catch(() => addSystemMessage('Click to resume playback'));
+     } else {
+      viewerVideoRef.current.pause();
+     }
+    }
+   };
+
+   socketRef.current.on('peer-id', handlePeerIdRegistration);
+   socketRef.current.on('videoSeekOperation', handleSeekNotification);
+   socketRef.current.on('videoStateUpdate', handleVideoStateUpdate);
+
+   return () => {
+    socketRef.current.off('peer-id', handlePeerIdRegistration);
+    socketRef.current.off('videoSeekOperation', handleSeekNotification);
+    socketRef.current.off('videoStateUpdate', handleVideoStateUpdate);
+   };
   }, [socketRef.current, isHost, isStreaming]);
 
   // Function to create a safe peer ID
@@ -537,9 +411,8 @@ export const WebRTCProvider = ({ 
             return newPeers;
           });
           
-          // Only add to disconnected if we're not intentionally seeking
-          if (!isSeekInProgress && isStreaming) {
-            disconnectedViewersRef.current[peerId] = true;
+      // Only add to disconnected if we're not intentionally seeking
+      if (!isSeekInProgressRef.current && isStreamingRef.current) {            disconnectedViewersRef.current[peerId] = true;
             reconnectAttemptsRef.current[peerId] = 0;
             
             // Try to reconnect automatically
@@ -616,30 +489,6 @@ export const WebRTCProvider = ({ 
         hostVideoRef.current.src = fileUrlRef.current;
         hostVideoRef.current.muted = false;
         hostVideoRef.current.load();
-        
-        // Add seek listener
-        hostVideoRef.current.onseeking = () => {
-          console.log('Video seeking detected');
-          if (isHost && isStreaming && !isSeekInProgress) {
-            handleSeekEvent(hostVideoRef.current.currentTime);
-          }
-        };
-
-        // --- NEW: Add listeners for play and pause events on the host video ---
-        hostVideoRef.current.onplay = () => {
-            console.log('Host video started playing.');
-            if (isHost && socketRef.current) {
-                socketRef.current.emit('hostVideoPlayPause', { roomId, paused: false });
-            }
-        };
-
-        hostVideoRef.current.onpause = () => {
-            console.log('Host video paused.');
-            if (isHost && socketRef.current) {
-                socketRef.current.emit('hostVideoPlayPause', { roomId, paused: true });
-            }
-        };
-        // --- END NEW ---
         
         // Log video element readiness
         console.log('Video element state:', {
@@ -778,10 +627,11 @@ export const WebRTCProvider = ({ 
         throw new Error('Video element not found');
       }
       
-      // Update state
-      setIsStreaming(true);
-      setStreamLoading(false);
-      
+    // Update state
+    setIsStreaming(true);
+    isStreamingRef.current = true;
+    setStreamLoading(false);
+    
       // Notify server about streaming status
       socketRef.current.emit('streaming-status-update', {
         roomId,
@@ -790,16 +640,13 @@ export const WebRTCProvider = ({ 
         fileType: localStorage.getItem('hostFileType')
       });
       
-      // Setup sync interval for progress tracking
-      const progressInterval = setInterval(() => {
-        if (hostVideoRef.current && hostVideoRef.current.duration) {
-          const percentage = Math.round((hostVideoRef.current.currentTime / hostVideoRef.current.duration) * 100);
-          setBufferPercentage(percentage);
-        }
-      }, 1000);
-      
-      window.progressIntervalId = progressInterval;
-      
+    progressIntervalRef.current = setInterval(() => {
+     if (hostVideoRef.current && hostVideoRef.current.duration) {
+      const percentage = Math.round((hostVideoRef.current.currentTime / hostVideoRef.current.duration) * 100);
+      setBufferPercentage(percentage);
+     }
+    }, 1000);
+    
       addSystemMessage('Started streaming to viewers');
       return true;
     } catch (err) {
@@ -814,12 +661,12 @@ export const WebRTCProvider = ({ 
   const stopStreaming = () => {
     if (!isStreaming) return;
     
-    // Clear intervals
-    if (window.progressIntervalId) {
-      clearInterval(window.progressIntervalId);
-      window.progressIntervalId = null;
-    }
-    
+   // Clear intervals
+   if (progressIntervalRef.current) {
+    clearInterval(progressIntervalRef.current);
+    progressIntervalRef.current = null;
+   }
+   
     // Stop all tracks in the local stream
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {
@@ -848,11 +695,13 @@ export const WebRTCProvider = ({ 
       hostVideoRef.current.load();
     }
     
-    // Update state
-    setIsStreaming(false);
-    setIsSeekInProgress(false);
-    setIsReconnecting(false);
-    
+   // Update state
+   setIsStreaming(false);
+   isStreamingRef.current = false;
+   setIsSeekInProgress(false);
+   isSeekInProgressRef.current = false;
+   setIsReconnecting(false);
+   
     // Notify server
     socketRef.current.emit('streaming-status-update', {
       roomId,

@@ -108,47 +108,47 @@ function HostVideo({
     }
   }, [videoUrl]);
 
-  // Debug video element
+  // Set up video event listeners
   useEffect(() => {
-    if (hostVideoRef.current) {
-      // Add debug event listeners
-      hostVideoRef.current.addEventListener('error', (e) => {
-        console.error('Video error:', e);
-        setStreamError(`Video error: ${e.target.error?.message || 'Unknown error'}`);
-      });
-      
-      // Capture any playback issues
-      hostVideoRef.current.addEventListener('stalled', () => {
-        console.warn('Video playback stalled');
-      });
-      
-      hostVideoRef.current.addEventListener('suspend', () => {
-        console.warn('Video playback suspended');
-      });
-      
-      hostVideoRef.current.addEventListener('waiting', () => {
-        console.warn('Video waiting for more data');
-      });
-      
-      // Add play/pause/seek event handlers
-      hostVideoRef.current.onplay = handlePlay;
-      hostVideoRef.current.onpause = handlePause;
-      hostVideoRef.current.onseeked = handleSeek;
-      hostVideoRef.current.ontimeupdate = handleTimeUpdate;
-      
-      // Track seeking status - this helps show visual feedback when seeking
-      hostVideoRef.current.onseeking = () => {
-        if (isStreaming) {
-          setSeekingInfo({
-            time: new Date(),
-            targetTime: hostVideoRef.current.currentTime
-          });
-        }
-      };
-    }
-  }, [hostVideoRef.current, setStreamError]);
+    const video = hostVideoRef.current;
+    if (!video) return;
 
-  // Show seeking overlay when isSeekInProgress is true
+    const handleError = (e) => {
+      console.error('Video error:', e);
+      setStreamError(`Video error: ${e.target.error?.message || 'Unknown error'}`);
+    };
+    const handleStalled = () => console.warn('Video playback stalled');
+    const handleSuspend = () => console.warn('Video playback suspended');
+    const handleWaiting = () => console.warn('Video waiting for more data');
+
+    video.addEventListener('error', handleError);
+    video.addEventListener('stalled', handleStalled);
+    video.addEventListener('suspend', handleSuspend);
+    video.addEventListener('waiting', handleWaiting);
+
+    video.onplay = handlePlay;
+    video.onpause = handlePause;
+    video.onseeked = handleSeek;
+    video.ontimeupdate = handleTimeUpdate;
+
+    // Seeking UI feedback only — no connection teardown
+    video.onseeking = () => {
+      if (isStreaming) {
+        setSeekingInfo({
+          time: new Date(),
+          targetTime: video.currentTime
+        });
+      }
+    };
+
+    return () => {
+      video.removeEventListener('error', handleError);
+      video.removeEventListener('stalled', handleStalled);
+      video.removeEventListener('suspend', handleSuspend);
+      video.removeEventListener('waiting', handleWaiting);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     if (isSeekInProgress) {
       // Show seeking UI
