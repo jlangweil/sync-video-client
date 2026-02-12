@@ -355,8 +355,20 @@ function Room() {
       }
     });
     
+    // Send heartbeat every 20s so server health check doesn't log false "disconnected" warnings
+    const heartbeatInterval = setInterval(() => {
+      if (socketRef.current?.connected) {
+        socketRef.current.emit('heartbeat', {
+          roomId,
+          timestamp: Date.now(),
+          isHost: storedIsHost
+        });
+      }
+    }, 20000);
+
     // Cleanup function
     return () => {
+      clearInterval(heartbeatInterval);
       socketRef.current.disconnect();
     };
   }, [roomId, navigate]);

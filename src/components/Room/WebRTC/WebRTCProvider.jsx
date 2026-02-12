@@ -261,35 +261,41 @@ export const WebRTCProvider = ({ 
         console.log('Receiving call from host:', call.peer);
         setConnectionStatus('connecting');
         
-        // Answer the call without sending a stream back
-        call.answer();
+        // Answer with an empty stream so the host's call.on('stream') fires
+        // and clears the 30-second timeout — without this the host kills the call at 30s
+        call.answer(new MediaStream());
         
         // Handle stream from host
         call.on('stream', stream => {
           console.log('Received stream from host');
-          
-          // Set the stream to the video element
-          if (viewerVideoRef.current) {
-            viewerVideoRef.current.srcObject = stream;
-            
-            // Try to play
-            viewerVideoRef.current.play()
-              .then(() => {
-                console.log('Viewer video is playing');
-                setConnectionStatus('ready');
-              })
-              .catch(err => {
-                console.error('Error playing video:', err);
-                addSystemMessage('Click to play the video (browser autoplay restriction)');
-                
-                // Add click handler to start playback
-                viewerVideoRef.current.addEventListener('click', () => {
-                  viewerVideoRef.current.play()
-                    .then(() => setConnectionStatus('ready'))
-                    .catch(err => console.error('Still cannot play:', err));
-                }, { once: true });
-              });
-          }
+
+          // Retry attaching the stream in case the <video> element hasn't rendered yet
+          // (race: PeerJS call can arrive before streaming-status triggers the video element)
+          const attachStream = (attemptsLeft) => {
+            if (viewerVideoRef.current) {
+              viewerVideoRef.current.srcObject = stream;
+              viewerVideoRef.current.play()
+                .then(() => {
+                  console.log('Viewer video is playing');
+                  setConnectionStatus('ready');
+                })
+                .catch(err => {
+                  console.error('Error playing video:', err);
+                  addSystemMessage('Click to play the video (browser autoplay restriction)');
+                  viewerVideoRef.current.addEventListener('click', () => {
+                    viewerVideoRef.current.play()
+                      .then(() => setConnectionStatus('ready'))
+                      .catch(e => console.error('Still cannot play:', e));
+                  }, { once: true });
+                });
+            } else if (attemptsLeft > 0) {
+              setTimeout(() => attachStream(attemptsLeft - 1), 200);
+            } else {
+              console.error('Viewer video element never appeared — stream lost');
+              setConnectionStatus('error');
+            }
+          };
+          attachStream(15); // retry up to 15 × 200ms = 3s
         });
         
         call.on('close', () => {
@@ -417,7 +423,7 @@ export const WebRTCProvider = ({ 
             
             // Try to reconnect automatically
             setTimeout(() => {
-              if (disconnectedViewersRef.current[peerId] && isStreaming) {
+              if (disconnectedViewersRef.current[peerId] && isStreamingRef.current) {
                 console.log(`Attempting to reconnect to ${peerId} after disconnect`);
                 callPeer(peerId).catch(err => {
                   console.error(`Failed to reconnect to ${peerId}:`, err);
