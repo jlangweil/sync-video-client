@@ -96,6 +96,46 @@ export const WebRTCProvider = ({ 
     }
   }, [isHost, addSystemMessage]);
 
+  // Monitor page visibility to warn host if they background the tab
+  useEffect(() => {
+    if (!isHost || !isStreaming) return;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.warn('Host tab backgrounded - stream may be throttled by browser');
+        addSystemMessage('⚠️ Warning: Backgrounding this tab may cause streaming issues. Keep this tab visible.');
+      } else {
+        console.log('Host tab visible again');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isHost, isStreaming, addSystemMessage]);
+
+  // Monitor page visibility to warn host if they background the tab
+  useEffect(() => {
+    if (!isHost || !isStreaming) return;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.warn('Host tab backgrounded - stream may be throttled by browser');
+        addSystemMessage('⚠️ Warning: Backgrounding this tab may cause streaming issues. Keep this tab visible.');
+      } else {
+        console.log('Host tab visible again');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isHost, isStreaming, addSystemMessage]);
+
   // Handle seek operations
   // captureStream() returns a live MediaStream tied to the video element —
   // it automatically follows seeks. No peer teardown needed.
@@ -261,9 +301,13 @@ export const WebRTCProvider = ({ 
         console.log('Receiving call from host:', call.peer);
         setConnectionStatus('connecting');
         
-        // Answer with an empty stream so the host's call.on('stream') fires
-        // and clears the 30-second timeout — without this the host kills the call at 30s
-        call.answer(new MediaStream());
+        // Answer with a minimal dummy stream so the host's call.on('stream') fires
+        // An empty MediaStream() has no tracks and won't trigger the event
+        const canvas = document.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        const dummyStream = canvas.captureStream(1); // 1x1px at 1fps - minimal bandwidth
+        call.answer(dummyStream);
         
         // Handle stream from host
         call.on('stream', stream => {
@@ -394,7 +438,36 @@ export const WebRTCProvider = ({ 
             reject(new Error('Call timed out'));
           }
         }, 30000);
-        
+
+        // Monitor ICE connection state for stability
+        if (call.peerConnection) {
+          call.peerConnection.oniceconnectionstatechange = () => {
+            const iceState = call.peerConnection.iceConnectionState;
+            console.log(`ICE connection state for ${peerId}: ${iceState}`);
+
+            if (iceState === 'connected' || iceState === 'completed') {
+              clearTimeout(callTimeout);
+              console.log(`ICE connected to ${peerId}, timeout cleared`);
+            } else if (iceState === 'disconnected') {
+              console.warn(`ICE disconnected for ${peerId}, waiting for recovery...`);
+              // Give ICE 5 seconds to recover before considering it failed
+              setTimeout(() => {
+                if (call.peerConnection.iceConnectionState === 'disconnected') {
+                  console.error(`ICE recovery timeout for ${peerId}, attempting ICE restart`);
+                  // Trigger ICE restart by creating a new offer
+                  call.peerConnection.createOffer({ iceRestart: true })
+                    .then(offer => call.peerConnection.setLocalDescription(offer))
+                    .catch(err => console.error('ICE restart failed:', err));
+                }
+              }, 5000);
+            } else if (iceState === 'failed') {
+              console.error(`ICE failed for ${peerId}, will attempt reconnection`);
+              // Close the call and let auto-reconnect handle it
+              call.close();
+            }
+          };
+        }
+
         call.on('stream', () => {
           console.log(`Connected to viewer ${peerId}`);
           clearTimeout(callTimeout);
@@ -417,20 +490,12 @@ export const WebRTCProvider = ({ 
             return newPeers;
           });
           
-      // Only add to disconnected if we're not intentionally seeking
-      if (!isSeekInProgressRef.current && isStreamingRef.current) {            disconnectedViewersRef.current[peerId] = true;
-            reconnectAttemptsRef.current[peerId] = 0;
-            
-            // Try to reconnect automatically
-            setTimeout(() => {
-              if (disconnectedViewersRef.current[peerId] && isStreamingRef.current) {
-                console.log(`Attempting to reconnect to ${peerId} after disconnect`);
-                callPeer(peerId).catch(err => {
-                  console.error(`Failed to reconnect to ${peerId}:`, err);
-                });
-              }
-            }, 3000);
-          }
+          // Mark as disconnected for tracking
+          // Removed aggressive auto-reconnect - ICE restart will handle temporary disconnects
+          if (!isSeekInProgressRef.current && isStreamingRef.current) {
+            console.log(`Viewer ${peerId} disconnected`);
+            disconnectedViewersRef.current[peerId] = true;
+          }
         });
         
         call.on('error', err => {

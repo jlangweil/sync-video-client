@@ -283,11 +283,18 @@ function Room() {
     // Add connection logging
     socketRef.current.on('connect', () => {
       console.log('Connected to server with socket ID:', socketRef.current.id);
-      
+
       // Join room after successful connection
       socketRef.current.emit('joinRoom', {
         roomId,
         username: storedUsername,
+        isHost: storedIsHost
+      });
+
+      // Send an immediate heartbeat so the server health check never sees a stale timestamp
+      socketRef.current.emit('heartbeat', {
+        roomId,
+        timestamp: Date.now(),
         isHost: storedIsHost
       });
     });
