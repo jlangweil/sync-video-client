@@ -5,11 +5,15 @@ import './Home.css';
 
 // Get the server URL dynamically based on the current browser location
 const getServerUrl = () => {
-  const isLocalhost = window.location.hostname === 'localhost' || 
-                       window.location.hostname === '127.0.0.1';
-  
-  if (isLocalhost) {
-    return `${window.location.protocol}//${window.location.hostname}:10000`;
+  const hostname = window.location.hostname;
+
+  // Check if it's localhost, 127.0.0.1, or a local network IP (192.168.x.x, 10.x.x.x, etc.)
+  const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+  const isLocalIP = hostname.match(/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/);
+
+  if (isLocalhost || isLocalIP) {
+    // Use the same hostname with port 10000 for local development
+    return `${window.location.protocol}//${hostname}:10000`;
   } else {
     // In production, this should be your backend Render URL
     return 'https://sync-video-app.onrender.com';

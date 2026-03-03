@@ -37,7 +37,7 @@
   overflow-y: auto;
   margin-bottom: 0.5rem;
   padding-right: 0.5rem;
-  max-height: 300px;
+  min-height: 150px; /* Ensure minimum usable space */
   -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
 }
 
