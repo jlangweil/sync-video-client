@@ -387,7 +387,20 @@ function Room() {
     // Cleanup function
     return () => {
       clearInterval(heartbeatInterval);
-      socketRef.current.disconnect();
+
+      // Remove all event listeners before disconnecting
+      if (socketRef.current) {
+        socketRef.current.off('connect');
+        socketRef.current.off('connect_error');
+        socketRef.current.off('reconnect');
+        socketRef.current.off('userJoined');
+        socketRef.current.off('userLeft');
+        socketRef.current.off('newMessage');
+        socketRef.current.off('streaming-status');
+        socketRef.current.off('videoSeekOperation');
+
+        socketRef.current.disconnect();
+      }
     };
   }, [roomId, navigate]);
   

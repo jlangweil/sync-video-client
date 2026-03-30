@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useWebRTC } from '../WebRTC/WebRTCProvider';
 import './VideoPlayer.css';
 
-function ViewerVideo({ 
+function ViewerVideo({
   videoUrl,
   videoFit,
   isTheaterMode,
@@ -10,68 +10,31 @@ function ViewerVideo({
   toggleTheaterMode,
   toggleFullscreen
 }) {
-  const { 
-    viewerVideoRef, 
+  const {
+    viewerVideoRef,
     connectionStatus,
-    bufferPercentage
+    serverVideoUrl,
+    downloadProgress
   } = useWebRTC();
 
   const [reconnecting, setReconnecting] = useState(false);
-  const [reconnectTimer, setReconnectTimer] = useState(null);
   const [lastConnectionChange, setLastConnectionChange] = useState(Date.now());
 
-  // Handle connection status changes
   useEffect(() => {
     setLastConnectionChange(Date.now());
-    
     if (connectionStatus === 'disconnected') {
-      // If disconnected for more than a few seconds, show reconnecting UI
-      const timer = setTimeout(() => {
-        setReconnecting(true);
-      }, 3000);
-      
-      setReconnectTimer(timer);
-      
+      const timer = setTimeout(() => setReconnecting(true), 3000);
       return () => clearTimeout(timer);
     } else if (connectionStatus === 'ready') {
-      // Clear reconnecting UI when connected
       setReconnecting(false);
-    }
-    
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
     }
   }, [connectionStatus]);
 
-  // Get connection status text
-  const getConnectionStatusText = () => {
-    switch (connectionStatus) {
-      case 'disconnected':
-        return 'Disconnected from host';
-      case 'connecting':
-        return 'Connecting to stream...';
-      case 'buffering':
-        return 'Buffering content...';
-      case 'error':
-        return 'Connection error';
-      case 'ready':
-        return 'Stream connected';
-      default:
-        return 'Waiting for host';
-    }
-  };
-
-  // Calculate time since last connection change
   const getTimeSinceChange = () => {
-    const secondsElapsed = Math.floor((Date.now() - lastConnectionChange) / 1000);
-    if (secondsElapsed < 60) {
-      return `${secondsElapsed}s ago`;
-    } else {
-      return `${Math.floor(secondsElapsed / 60)}m ${secondsElapsed % 60}s ago`;
-    }
+    const s = Math.floor((Date.now() - lastConnectionChange) / 1000);
+    return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ${s % 60}s ago`;
   };
 
-  // Enhanced video container styles for consistent positioning
   const videoContainerStyle = {
     display: 'flex',
     justifyContent: 'center',
@@ -83,14 +46,11 @@ function ViewerVideo({
     overflow: 'hidden'
   };
 
-  // Enhanced video styles to match host exactly
   const videoStyle = {
     width: isTheaterMode ? '100vw' : '100%',
     height: isTheaterMode ? '100vh' : '100%',
     maxWidth: isTheaterMode ? '100vw' : '100%',
     maxHeight: isTheaterMode ? '100vh' : '100%',
-    minWidth: isTheaterMode ? '100vw' : 'auto',
-    minHeight: isTheaterMode ? '100vh' : 'auto',
     objectFit: videoFit || 'contain',
     display: 'block',
     margin: '0 auto',
@@ -101,8 +61,8 @@ function ViewerVideo({
 
   return (
     <div className="video-wrapper" style={videoContainerStyle}>
-      {videoUrl && videoUrl.startsWith('streaming:') ? (
-        // Show video when host is streaming
+      {serverVideoUrl ? (
+        // Video URL is set (HTTP or local blob) — show player
         <>
           <video
             ref={viewerVideoRef}
@@ -111,141 +71,192 @@ function ViewerVideo({
             className="viewer-video maintain-aspect"
             playsInline
             muted={false}
-            preload="metadata"
-            onLoadedMetadata={() => {
-              console.log('Viewer video metadata loaded:', {
-                videoWidth: viewerVideoRef.current?.videoWidth,
-                videoHeight: viewerVideoRef.current?.videoHeight,
-                duration: viewerVideoRef.current?.duration
-              });
-            }}
-            onResize={() => {
-              // Log when video dimensions change to help debug sizing issues
-              if (viewerVideoRef.current) {
-                console.log('Viewer video resized:', {
-                  videoWidth: viewerVideoRef.current.videoWidth,
-                  videoHeight: viewerVideoRef.current.videoHeight,
-                  clientWidth: viewerVideoRef.current.clientWidth,
-                  clientHeight: viewerVideoRef.current.clientHeight
-                });
-              }
-            }}
+            preload="auto"
           />
-          
-          {/* Connection status indicator */}
-          <div className="connection-status">
-            <div className="status-indicator">
-              {connectionStatus === 'disconnected' ? (
-                <>
-                  <div className="status-dot disconnected"></div>
-                  <span>Disconnected {reconnecting ? '(reconnecting...)' : ''}</span>
-                </>
-              ) : connectionStatus === 'connecting' ? (
-                <>
-                  <div className="status-dot connecting"></div>
-                  <span>Connecting to stream...</span>
-                </>
-              ) : connectionStatus === 'buffering' ? (
-                <>
-                  <div className="status-dot buffering"></div>
-                  <span>Buffering content... {bufferPercentage > 0 ? `${bufferPercentage}%` : ''}</span>
-                </>
-              ) : connectionStatus === 'error' ? (
-                <>
-                  <div className="status-dot error"></div>
-                  <span>Connection error - try refreshing</span>
-                </>
-              ) : (
-                <>
-                  <div className="status-dot ready"></div>
-                  <span>Stream connected</span>
-                </>
-              )}
+
+          {/* Initial HTTP buffering overlay (only before first canplay) */}
+          {connectionStatus === 'buffering' && downloadProgress < 5 && (
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(0,0,0,0.75)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 30,
+              color: 'white',
+              gap: '12px'
+            }}>
+              <div style={{ fontSize: '17px', fontWeight: 500 }}>Starting playback...</div>
+              <div style={{ fontSize: '13px', opacity: 0.6 }}>Buffering first few seconds</div>
             </div>
+          )}
+
+          {/* Non-intrusive background download progress bar at the bottom */}
+          {downloadProgress > 0 && downloadProgress < 100 && (
+            <div style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              zIndex: 20,
+              padding: '6px 10px 8px',
+              background: 'linear-gradient(transparent, rgba(0,0,0,0.6))'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '4px'
+              }}>
+                <div style={{ flex: 1, height: '3px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px', overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${downloadProgress}%`,
+                    height: '100%',
+                    background: '#e74c3c',
+                    borderRadius: '2px',
+                    transition: 'width 0.4s ease'
+                  }} />
+                </div>
+                <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px', whiteSpace: 'nowrap' }}>
+                  Buffering locally {downloadProgress}%
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Brief "fully buffered" confirmation */}
+          {downloadProgress === 100 && (
+            <DownloadCompleteToast />
+          )}
+
+          {/* Status dot (top-left, subtle) */}
+          <div style={{
+            position: 'absolute',
+            top: '10px',
+            left: '10px',
+            zIndex: 15,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            background: 'rgba(0,0,0,0.5)',
+            padding: '3px 8px',
+            borderRadius: '10px'
+          }}>
+            <div style={{
+              width: '7px',
+              height: '7px',
+              borderRadius: '50%',
+              background: connectionStatus === 'ready' ? '#2ecc71'
+                        : connectionStatus === 'buffering' ? '#f39c12'
+                        : '#e74c3c'
+            }} />
+            <span style={{ color: 'white', fontSize: '11px' }}>
+              {connectionStatus === 'ready' && downloadProgress === 100
+                ? 'Local buffer'
+                : connectionStatus === 'ready'
+                ? 'Streaming'
+                : connectionStatus === 'buffering'
+                ? 'Buffering...'
+                : 'Reconnecting...'}
+            </span>
           </div>
-          
-          {/* Extended reconnection UI */}
-          {reconnecting && connectionStatus === 'disconnected' && (
+
+          {/* Reconnection overlay */}
+          {reconnecting && connectionStatus === 'disconnected' && downloadProgress < 100 && (
             <div className="reconnection-overlay">
               <div className="reconnection-message">
                 <div className="reconnection-spinner"></div>
                 <p>Connection lost</p>
                 <p className="small">Attempting to reconnect...</p>
                 <p className="status-time">Disconnected {getTimeSinceChange()}</p>
-                <button 
-                  onClick={() => window.location.reload()} 
-                  className="refresh-button"
-                >
+                <button onClick={() => window.location.reload()} className="refresh-button">
                   Refresh Page
                 </button>
               </div>
             </div>
           )}
-          
-          {/* Only show this message when not in theater/fullscreen mode */}
-          {!isTheaterMode && !isFullscreen && (
-            <div 
-              className="viewer-message"
-              style={{
-                position: 'absolute',
-                bottom: '20px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                backgroundColor: 'rgba(0,0,0,0.7)',
-                color: 'white',
-                padding: '8px 16px',
-                borderRadius: '4px',
-                fontSize: '14px',
-                zIndex: 10,
-                textAlign: 'center',
-                whiteSpace: 'nowrap'
-              }}
-            >
-            </div>
-          )}
         </>
+      ) : videoUrl && videoUrl.startsWith('streaming:') ? (
+        // Server assembled, viewer hasn't started download yet
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          color: 'white',
+          textAlign: 'center',
+          padding: '20px',
+          gap: '12px'
+        }}>
+          <div style={{ fontSize: '16px' }}>Connecting to stream...</div>
+          <div style={{
+            width: '32px', height: '32px',
+            border: '3px solid rgba(255,255,255,0.2)',
+            borderTopColor: '#e74c3c',
+            borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite'
+          }} />
+        </div>
       ) : videoUrl && videoUrl.startsWith('local:') ? (
-        // Host has a file but hasn't started streaming yet
-        <div 
-          className="waiting-for-video"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: 'white',
-            textAlign: 'center',
-            padding: '20px'
-          }}
-        >
+        // Host selected file, hasn't started yet
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          color: 'white',
+          textAlign: 'center',
+          padding: '20px'
+        }}>
           <p style={{ margin: '10px 0', fontSize: '16px' }}>
             Host has selected: {videoUrl.replace('local:', '')}
           </p>
-          <p style={{ margin: '10px 0', fontSize: '14px', opacity: 0.8 }}>
+          <p style={{ margin: '10px 0', fontSize: '14px', opacity: 0.7 }}>
             Waiting for host to start streaming...
           </p>
         </div>
       ) : (
-        // No video available yet
-        <div 
-          className="waiting-for-video"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: 'white',
-            textAlign: 'center',
-            padding: '20px'
-          }}
-        >
-          <p style={{ margin: '10px 0', fontSize: '16px' }}>
-            Waiting for host to select a video...
-          </p>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          color: 'white',
+          fontSize: '16px'
+        }}>
+          Waiting for host to select a video...
         </div>
       )}
+    </div>
+  );
+}
+
+// Fades in then out after a few seconds
+function DownloadCompleteToast() {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setVisible(false), 3000);
+    return () => clearTimeout(t);
+  }, []);
+  if (!visible) return null;
+  return (
+    <div style={{
+      position: 'absolute',
+      bottom: '16px',
+      right: '16px',
+      background: 'rgba(46,204,113,0.85)',
+      color: 'white',
+      padding: '6px 14px',
+      borderRadius: '6px',
+      fontSize: '13px',
+      zIndex: 20,
+      pointerEvents: 'none'
+    }}>
+      Fully buffered — instant seeking enabled
     </div>
   );
 }

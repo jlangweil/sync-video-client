@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './Home.css';
@@ -31,12 +31,16 @@ function Home() {
   const [username, setUsername] = useState('');
   const [activeTab, setActiveTab] = useState('join'); // Changed to 'join' as default tab
   const [creatingRoom, setCreatingRoom] = useState(false);
-  
+  const fileUrlRef = useRef(null); // Track file URL for cleanup
+
   const navigate = useNavigate();
 
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    const f = e.target.files[0];
+    setFile(f);
     setError('');
+    // Store File object so WebRTCProvider can use file.slice() for memory-efficient uploads
+    window.__hostFile = f || null;
   };
 
   const handleUpload = async (e) => {
@@ -75,11 +79,20 @@ function Home() {
       localStorage.setItem('hostFileType', file.type);
       localStorage.setItem('hostFileSize', file.size.toString());
       
+      // Revoke old URL before creating new one to prevent memory leaks
+      if (fileUrlRef.current) {
+        URL.revokeObjectURL(fileUrlRef.current);
+        fileUrlRef.current = null;
+      }
+
       // Create a file URL that can be accessed in the Room component
       // IMPORTANT: This is a critical part that was causing the streaming issue
       const fileUrl = URL.createObjectURL(file);
       console.log('Creating object URL for file:', fileUrl ? 'URL created successfully' : 'Failed to create URL');
-      
+
+      // Store the URL in ref for cleanup
+      fileUrlRef.current = fileUrl;
+
       // Store in both sessionStorage (primary) and localStorage (backup indicator)
       sessionStorage.setItem('hostFileUrl', fileUrl);
       localStorage.setItem('hostFileUrlBackup', 'file_url_stored');
@@ -146,6 +159,16 @@ function Home() {
     // Use the dedicated chat route instead
     navigate(`/chat/${roomId}`);
   };
+
+  // Cleanup file URL on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (fileUrlRef.current) {
+        URL.revokeObjectURL(fileUrlRef.current);
+        fileUrlRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <div className="home-container">
