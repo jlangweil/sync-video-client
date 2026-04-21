@@ -129,19 +129,42 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
     v.src = serverVideoUrl;
     v.load();
 
-    const onCanPlay = () => {
+    let readyFired = false;
+    const markReady = () => {
+      if (readyFired) return;
+      readyFired = true;
+      clearTimeout(readyTimeout);
       setConnectionStatus('ready');
       v.play().catch(() => addSystemMessage('Click video to start playback'));
       setIsStreaming(true);
       isStreamingRef.current = true;
     };
-    v.addEventListener('canplay', onCanPlay, { once: true });
+
+    const onError = () => {
+      if (!readyFired) {
+        addSystemMessage('Video error — check browser console');
+        setConnectionStatus('disconnected');
+      }
+    };
+
+    // canplay fires when the browser thinks it can play without stalling.
+    // loadeddata fires earlier (first frame decoded). Use either.
+    v.addEventListener('canplay',    markReady, { once: true });
+    v.addEventListener('loadeddata', markReady, { once: true });
+    v.addEventListener('error',      onError,   { once: true });
+
+    // Hard timeout: if neither event fires in 12s, try to play anyway.
+    // This handles slow-starting streams or missing canplay on some browsers.
+    const readyTimeout = setTimeout(markReady, 12000);
 
     // Download full file in background while video plays
     downloadToBlob(serverVideoUrl, streamFileType.current, v);
 
     return () => {
-      v.removeEventListener('canplay', onCanPlay);
+      clearTimeout(readyTimeout);
+      v.removeEventListener('canplay',    markReady);
+      v.removeEventListener('loadeddata', markReady);
+      v.removeEventListener('error',      onError);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHost, serverVideoUrl]);
