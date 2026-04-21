@@ -25,6 +25,9 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
   const [uploadProgress,   setUploadProgress]   = useState(0);
   const [downloadProgress, setDownloadProgress] = useState(0); // 0-100, viewer only
   const [serverVideoUrl,   setServerVideoUrl]   = useState(''); // HTTP URL → shows <video> element
+  // Incremented on every stream-ready for viewers so the setup effect always re-runs,
+  // even when serverVideoUrl doesn't change (e.g. after a failed previous attempt).
+  const [streamTrigger,    setStreamTrigger]    = useState(0);
 
   const hostVideoRef    = useRef(null);
   const viewerVideoRef  = useRef(null);
@@ -92,9 +95,14 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
           });
         }
       } else if (!isHost) {
-        // Setting this state triggers a re-render in ViewerVideo which adds <video> to the DOM.
-        // The effect below then fires (after the DOM update) to wire up src and start download.
+        // Reset any stale download state from a prior failed attempt so the
+        // viewer setup effect always re-runs, even if serverVideoUrl is the same URL.
+        downloadingRef.current = false;
         setServerVideoUrl(SERVER_URL + streamUrl);
+        // Bump the trigger so the viewer setup effect re-runs unconditionally.
+        // React skips effects whose deps haven't changed, so if serverVideoUrl is
+        // already the same URL (e.g. after a 404 retry), we need this extra dep.
+        setStreamTrigger(t => t + 1);
       }
     };
 
@@ -117,9 +125,12 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
   // the <video ref={viewerVideoRef}> element. By the time this effect fires,
   // the DOM commit is done and viewerVideoRef.current is populated.
   useEffect(() => {
-    if (isHost || !serverVideoUrl || downloadingRef.current) return;
+    if (isHost || !serverVideoUrl) return;
     const v = viewerVideoRef.current;
-    if (!v) return; // safety — should always be set at this point
+    if (!v) {
+      console.warn('[viewer-setup] viewerVideoRef.current is null — skipping');
+      return;
+    }
 
     downloadingRef.current = true;
     setConnectionStatus('buffering');
@@ -142,7 +153,11 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
 
     const onError = () => {
       if (!readyFired) {
-        addSystemMessage('Video error — check browser console');
+        readyFired = true;
+        clearTimeout(readyTimeout);
+        downloadingRef.current = false; // allow retry on next stream-ready
+        console.error('[viewer-setup] video element error — url:', serverVideoUrl);
+        addSystemMessage('Video load error — waiting for next sync');
         setConnectionStatus('disconnected');
       }
     };
@@ -154,7 +169,6 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
     v.addEventListener('error',      onError,   { once: true });
 
     // Hard timeout: if neither event fires in 12s, try to play anyway.
-    // This handles slow-starting streams or missing canplay on some browsers.
     const readyTimeout = setTimeout(markReady, 12000);
 
     // Download full file in background while video plays
@@ -167,7 +181,7 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
       v.removeEventListener('error',      onError);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHost, serverVideoUrl]);
+  }, [isHost, serverVideoUrl, streamTrigger]);
 
   // ─── Background full-file download → swap to local blob on completion ─────
   const downloadToBlob = async (httpUrl, fileType, videoEl) => {
@@ -234,11 +248,13 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
 
     const onFallbackSync = ({ currentTime, isPlaying, uploadId }) => {
       if (isHost) return;
-      if (uploadId && !downloadingRef.current) {
-        // Late joiner — trigger the same flow as stream-ready
+      if (uploadId) {
+        // Late joiner — same flow as stream-ready. Always reset so we can retry.
         streamFileType.current = null;
         uploadIdRef.current = uploadId;
+        downloadingRef.current = false;
         setServerVideoUrl(SERVER_URL + '/stream/' + uploadId);
+        setStreamTrigger(t => t + 1);
       }
       // Sync playback position after video has a moment to load
       setTimeout(() => {
