@@ -15,8 +15,9 @@ const getServerUrl = () => {
 };
 const SERVER_URL = getServerUrl();
 const CHUNK_SIZE = 5 * 1024 * 1024;
+const PARALLEL_UPLOADS = 6; // concurrent chunk uploads
 
-export const WebRTCProvider = ({ children, socketRef, roomId, isHost, users, addSystemMessage }) => {
+export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHost, users, addSystemMessage }) => {
   const [isStreaming,      setIsStreaming]      = useState(false);
   const [streamError,      setStreamError]      = useState('');
   const [streamLoading,    setStreamLoading]    = useState(false);
@@ -50,7 +51,7 @@ export const WebRTCProvider = ({ children, socketRef, roomId, isHost, users, add
 
   // ─── Socket: stream-ready ──────────────────────────────────────────────────
   useEffect(() => {
-    if (!socketRef.current) return;
+    if (!socketRef.current || !socketReady) return;
 
     const onStreamReady = ({ uploadId, streamUrl, fileType }) => {
       uploadIdRef.current = uploadId;
@@ -109,7 +110,7 @@ export const WebRTCProvider = ({ children, socketRef, roomId, isHost, users, add
       socketRef.current.off('stream-ready', onStreamReady);
       socketRef.current.off('stream-error', onStreamError);
     };
-  }, [socketRef.current, isHost, addSystemMessage]);
+  }, [socketReady, isHost]);
 
   // ─── Viewer setup: runs after <video> is in the DOM ───────────────────────
   // serverVideoUrl changing to a truthy value means ViewerVideo just rendered
@@ -193,7 +194,7 @@ export const WebRTCProvider = ({ children, socketRef, roomId, isHost, users, add
 
   // ─── Socket: play/pause/seek sync ─────────────────────────────────────────
   useEffect(() => {
-    if (!socketRef.current) return;
+    if (!socketRef.current || !socketReady) return;
 
     const onStateUpdate = ({ isPlaying, currentTime }) => {
       if (isHost || !viewerVideoRef.current) return;
@@ -235,7 +236,7 @@ export const WebRTCProvider = ({ children, socketRef, roomId, isHost, users, add
       socketRef.current.off('videoSeekOperation',  onSeek);
       socketRef.current.off('fallback-sync-state', onFallbackSync);
     };
-  }, [socketRef.current, isHost]);
+  }, [socketReady, isHost]);
 
   // ─── Upload: chunk file to server ─────────────────────────────────────────
   const startStreaming = async () => {
@@ -264,25 +265,34 @@ export const WebRTCProvider = ({ children, socketRef, roomId, isHost, users, add
       const { uploadId } = await initRes.json();
       uploadIdRef.current = uploadId;
 
+      // Load blob fallback once if no File object
       let fullBlob = null;
-      for (let i = 0; i < totalChunks; i++) {
-        const start = i * CHUNK_SIZE;
-        let chunk;
-        if (hostFile) {
-          chunk = hostFile.slice(start, start + CHUNK_SIZE);
-        } else {
-          if (!fullBlob) {
-            if (fileSize > 500 * 1024 * 1024) addSystemMessage('Warning: large file — keep this tab open during upload.');
-            fullBlob = await (await fetch(fileUrlRef.current)).blob();
-          }
-          chunk = fullBlob.slice(start, start + CHUNK_SIZE);
-        }
+      if (!hostFile) {
+        if (fileSize > 500 * 1024 * 1024) addSystemMessage('Warning: large file — keep this tab open during upload.');
+        fullBlob = await (await fetch(fileUrlRef.current)).blob();
+      }
 
-        const form = new FormData();
-        form.append('chunk', chunk, fileName);
-        const res = await fetch(SERVER_URL + '/upload/chunk/' + uploadId + '/' + i, { method: 'POST', body: form });
-        if (!res.ok) throw new Error('Chunk ' + i + ' upload failed');
-        setUploadProgress(Math.round(((i + 1) / totalChunks) * 95));
+      // Upload PARALLEL_UPLOADS chunks at a time for speed
+      let completed = 0;
+      for (let batchStart = 0; batchStart < totalChunks; batchStart += PARALLEL_UPLOADS) {
+        const batchEnd = Math.min(batchStart + PARALLEL_UPLOADS, totalChunks);
+        const batch = [];
+        for (let i = batchStart; i < batchEnd; i++) {
+          const start = i * CHUNK_SIZE;
+          const chunk = hostFile ? hostFile.slice(start, start + CHUNK_SIZE)
+                                 : fullBlob.slice(start, start + CHUNK_SIZE);
+          const form = new FormData();
+          form.append('chunk', chunk, fileName);
+          batch.push(
+            fetch(SERVER_URL + '/upload/chunk/' + uploadId + '/' + i, { method: 'POST', body: form })
+              .then(r => {
+                if (!r.ok) throw new Error('Chunk ' + i + ' upload failed');
+                completed++;
+                setUploadProgress(Math.round((completed / totalChunks) * 90));
+              })
+          );
+        }
+        await Promise.all(batch);
       }
 
       socketRef.current.emit('streaming-status-update', { roomId, streaming: true, fileName, fileType });

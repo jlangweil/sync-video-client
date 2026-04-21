@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import io from 'socket.io-client';
 import RoomHeader from './RoomHeader';
@@ -56,6 +56,14 @@ function Room() {
   
   // Socket reference
   const socketRef = useRef(null);
+
+  // True once the socket fires its first 'connect' event.
+  // Passed to WebRTCProvider so its effects can use it as a dependency —
+  // that guarantees socket listeners are registered before joinRoom is emitted.
+  const [socketReady, setSocketReady] = useState(false);
+
+  // Stable ref so the joinRoom effect can read current auth without extra deps
+  const authRef = useRef({ username: '', isHost: false });
   
   // Chat container reference for auto-scrolling
   const chatContainerRef = useRef(null);
@@ -148,18 +156,14 @@ function Room() {
     }
   };
   
-  // Helper to add system messages
-  const addSystemMessage = (text) => {
+  // Stable reference — useCallback with [] so this never changes identity,
+  // preventing WebRTCProvider's socket-listener effects from re-firing on every render.
+  const addSystemMessage = useCallback((text) => {
     setMessages(prevMessages => [
       ...prevMessages,
-      {
-        user: 'System',
-        text,
-        time: new Date().toLocaleTimeString(),
-        isSystem: true
-      }
+      { user: 'System', text, time: new Date().toLocaleTimeString(), isSystem: true }
     ]);
-  };
+  }, []);
   
   // Basic resize functions with minimum width constraint
   const handleMouseDown = (e) => {
@@ -280,6 +284,9 @@ function Room() {
       }
     }
     
+    // Store auth for use in effects that read authRef without re-running on auth changes
+    authRef.current = { username: storedUsername, isHost: storedIsHost };
+
     // Initialize socket with dynamic server URL
     console.log('Connecting to socket server at:', SERVER_URL);
     socketRef.current = io(SERVER_URL, {
@@ -290,17 +297,17 @@ function Room() {
       secure: window.location.protocol === 'https:',
       path: '/socket.io/'
     });
-    
+
     // Add connection logging
     socketRef.current.on('connect', () => {
       console.log('Connected to server with socket ID:', socketRef.current.id);
 
-      // Join room after successful connection
-      socketRef.current.emit('joinRoom', {
-        roomId,
-        username: storedUsername,
-        isHost: storedIsHost
-      });
+      // Setting socketReady triggers a React re-render. Because React runs child
+      // effects before parent effects, WebRTCProvider's [socketReady] effects will
+      // register socket listeners BEFORE the [socketReady, roomId] effect below
+      // emits joinRoom — guaranteeing the listeners are in place when the server
+      // responds to joinRoom.
+      setSocketReady(true);
 
       // Send an immediate heartbeat so the server health check never sees a stale timestamp
       socketRef.current.emit('heartbeat', {
@@ -404,6 +411,17 @@ function Room() {
     };
   }, [roomId, navigate]);
   
+  // Emit joinRoom once the socket is ready — runs AFTER WebRTCProvider's
+  // [socketReady] effects have registered their listeners (child effects fire first).
+  useEffect(() => {
+    if (!socketReady || !socketRef.current) return;
+    socketRef.current.emit('joinRoom', {
+      roomId,
+      username: authRef.current.username,
+      isHost: authRef.current.isHost
+    });
+  }, [socketReady, roomId]);
+
   // Handle video state updates from server
   useEffect(() => {
     if (!socketRef.current) return;
@@ -499,6 +517,7 @@ function Room() {
   return (
     <WebRTCProvider
       socketRef={socketRef}
+      socketReady={socketReady}
       roomId={roomId}
       isHost={isHost}
       users={users}
