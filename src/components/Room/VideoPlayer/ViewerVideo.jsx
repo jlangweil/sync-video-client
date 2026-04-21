@@ -14,7 +14,8 @@ function ViewerVideo({
     viewerVideoRef,
     connectionStatus,
     serverVideoUrl,
-    downloadProgress
+    downloadProgress,
+    serverBufferingProgress
   } = useWebRTC();
 
   const [reconnecting, setReconnecting] = useState(false);
@@ -179,7 +180,7 @@ function ViewerVideo({
           )}
         </>
       ) : videoUrl && videoUrl.startsWith('streaming:') ? (
-        // Server assembled, viewer hasn't started download yet
+        // Host is uploading — show buffering progress toward the 10% start threshold
         <div style={{
           display: 'flex',
           flexDirection: 'column',
@@ -189,16 +190,43 @@ function ViewerVideo({
           color: 'white',
           textAlign: 'center',
           padding: '20px',
-          gap: '12px'
+          gap: '16px'
         }}>
-          <div style={{ fontSize: '16px' }}>Connecting to stream...</div>
-          <div style={{
-            width: '32px', height: '32px',
-            border: '3px solid rgba(255,255,255,0.2)',
-            borderTopColor: '#e74c3c',
-            borderRadius: '50%',
-            animation: 'spin 0.8s linear infinite'
-          }} />
+          <div style={{ fontSize: '17px', fontWeight: 500 }}>
+            {serverBufferingProgress === 0
+              ? 'Waiting for upload to begin…'
+              : serverBufferingProgress < 100
+              ? 'Buffering — playback starts soon'
+              : 'Starting playback…'}
+          </div>
+
+          {/* Progress bar */}
+          <div style={{ width: '260px' }}>
+            <div style={{
+              width: '100%', height: '8px',
+              background: 'rgba(255,255,255,0.15)',
+              borderRadius: '4px', overflow: 'hidden'
+            }}>
+              <div style={{
+                width: `${serverBufferingProgress}%`,
+                height: '100%',
+                background: '#e74c3c',
+                borderRadius: '4px',
+                transition: 'width 0.4s ease'
+              }} />
+            </div>
+            <div style={{
+              display: 'flex', justifyContent: 'space-between',
+              marginTop: '6px', fontSize: '12px', opacity: 0.65
+            }}>
+              <span>{serverBufferingProgress}% buffered</span>
+              <span>starts at 100%</span>
+            </div>
+          </div>
+
+          <div style={{ fontSize: '12px', opacity: 0.5 }}>
+            {videoUrl.replace('streaming:', '')}
+          </div>
         </div>
       ) : videoUrl && videoUrl.startsWith('local:') ? (
         // Host selected file, hasn't started yet

@@ -22,12 +22,13 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
   const [streamError,      setStreamError]      = useState('');
   const [streamLoading,    setStreamLoading]    = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
-  const [uploadProgress,   setUploadProgress]   = useState(0);
-  const [downloadProgress, setDownloadProgress] = useState(0); // 0-100, viewer only
-  const [serverVideoUrl,   setServerVideoUrl]   = useState(''); // HTTP URL → shows <video> element
+  const [uploadProgress,        setUploadProgress]        = useState(0);
+  const [downloadProgress,      setDownloadProgress]      = useState(0);   // 0-100, viewer only
+  const [serverBufferingProgress, setServerBufferingProgress] = useState(0); // 0-100, viewer pre-start
+  const [serverVideoUrl,        setServerVideoUrl]        = useState(''); // HTTP URL → shows <video> element
   // Incremented on every stream-ready for viewers so the setup effect always re-runs,
   // even when serverVideoUrl doesn't change (e.g. after a failed previous attempt).
-  const [streamTrigger,    setStreamTrigger]    = useState(0);
+  const [streamTrigger,         setStreamTrigger]         = useState(0);
 
   const hostVideoRef    = useRef(null);
   const viewerVideoRef  = useRef(null);
@@ -56,11 +57,16 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
   useEffect(() => {
     if (!socketRef.current || !socketReady) return;
 
+    const onStreamBuffering = ({ progress }) => {
+      if (!isHost) setServerBufferingProgress(progress);
+    };
+
     const onStreamReady = ({ uploadId, streamUrl, fileType }) => {
       uploadIdRef.current = uploadId;
       streamFileType.current = fileType || 'video/mp4';
       setStreamLoading(false);
       setUploadProgress(100);
+      setServerBufferingProgress(100); // threshold reached — reset to full
 
       if (isHost) {
         console.log('[stream-ready] host path — hostVideoRef:', !!hostVideoRef.current, 'fileUrlRef:', fileUrlRef.current, '__hostFile:', !!window.__hostFile);
@@ -111,12 +117,14 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
       setStreamLoading(false);
     };
 
-    socketRef.current.on('stream-ready', onStreamReady);
-    socketRef.current.on('stream-error', onStreamError);
+    socketRef.current.on('stream-buffering', onStreamBuffering);
+    socketRef.current.on('stream-ready',    onStreamReady);
+    socketRef.current.on('stream-error',    onStreamError);
     return () => {
       if (!socketRef.current) return;
-      socketRef.current.off('stream-ready', onStreamReady);
-      socketRef.current.off('stream-error', onStreamError);
+      socketRef.current.off('stream-buffering', onStreamBuffering);
+      socketRef.current.off('stream-ready',    onStreamReady);
+      socketRef.current.off('stream-error',    onStreamError);
     };
   }, [socketReady, isHost]);
 
@@ -354,6 +362,7 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
     setServerVideoUrl('');
     setUploadProgress(0);
     setDownloadProgress(0);
+    setServerBufferingProgress(0);
     setConnectionStatus('disconnected');
     downloadingRef.current = false;
     addSystemMessage('Stopped streaming.');
@@ -368,7 +377,7 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
 
   const contextValue = {
     isStreaming, streamError, streamLoading,
-    connectionStatus, uploadProgress, downloadProgress, serverVideoUrl,
+    connectionStatus, uploadProgress, downloadProgress, serverBufferingProgress, serverVideoUrl,
     fileUrlRef, hostVideoRef, viewerVideoRef,
     startStreaming, stopStreaming, handleSeekEvent, debugWebRTCConnections,
     setStreamError, setStreamLoading, setConnectionStatus
