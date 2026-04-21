@@ -58,7 +58,7 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
     if (!socketRef.current || !socketReady) return;
 
     const onStreamBuffering = ({ progress }) => {
-      if (!isHost) setServerBufferingProgress(progress);
+      setServerBufferingProgress(progress);
     };
 
     const onStreamReady = ({ uploadId, streamUrl, fileType }) => {
@@ -306,6 +306,11 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
       const { uploadId } = await initRes.json();
       uploadIdRef.current = uploadId;
 
+      // Notify viewers immediately so they show the buffering UI while chunks upload.
+      // Must happen before the chunk loop — assembly runs concurrently with upload and
+      // stream-ready can fire before all chunks finish, meaning viewers would miss the UI.
+      socketRef.current.emit('streaming-status-update', { roomId, streaming: true, fileName, fileType });
+
       // Load blob fallback once if no File object
       let fullBlob = null;
       if (!hostFile) {
@@ -336,13 +341,16 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
         await Promise.all(batch);
       }
 
-      socketRef.current.emit('streaming-status-update', { roomId, streaming: true, fileName, fileType });
       addSystemMessage('Upload complete — assembling on server...');
       return true;
     } catch (err) {
       console.error('Upload error:', err);
       setStreamError('Upload failed: ' + err.message);
       setStreamLoading(false);
+      // Roll back the streaming status we optimistically sent at init time
+      if (socketRef.current) {
+        socketRef.current.emit('streaming-status-update', { roomId, streaming: false, fileName: null, fileType: null });
+      }
       return false;
     }
   };

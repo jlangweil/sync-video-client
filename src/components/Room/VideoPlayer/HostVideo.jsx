@@ -17,6 +17,7 @@ function HostVideo({
     streamError,
     streamLoading,
     uploadProgress,
+    serverBufferingProgress,
     setStreamError,
     fileUrlRef,
   } = useWebRTC();
@@ -129,7 +130,7 @@ function HostVideo({
         onError={(e) => setStreamError(`Video error: ${e.target.error?.message || 'Unknown error'}`)}
       />
 
-      {/* Upload progress overlay */}
+      {/* Upload / assembly progress overlay */}
       {streamLoading && (
         <div style={{
           position: 'absolute', inset: 0,
@@ -138,14 +139,33 @@ function HostVideo({
           alignItems: 'center', justifyContent: 'center',
           zIndex: 30, color: 'white', gap: '16px'
         }}>
-          <div style={{ fontSize: '18px', fontWeight: 500 }}>
-            {uploadProgress < 95 ? 'Uploading video to server...' : 'Assembling on server...'}
-          </div>
-          <div style={{ width: '300px', height: '10px', background: 'rgba(255,255,255,0.2)', borderRadius: '5px', overflow: 'hidden' }}>
-            <div style={{ width: `${uploadProgress}%`, height: '100%', background: '#e74c3c', borderRadius: '5px', transition: 'width 0.4s ease' }} />
-          </div>
-          <div style={{ fontSize: '14px', opacity: 0.8 }}>{uploadProgress}%</div>
-          <div style={{ fontSize: '12px', opacity: 0.6 }}>Keep this tab open during upload</div>
+          {uploadProgress < 90 ? (
+            // Phase 1: chunks uploading
+            <>
+              <div style={{ fontSize: '18px', fontWeight: 500 }}>Uploading video to server...</div>
+              <div style={{ width: '300px', height: '10px', background: 'rgba(255,255,255,0.2)', borderRadius: '5px', overflow: 'hidden' }}>
+                <div style={{ width: `${uploadProgress}%`, height: '100%', background: '#e74c3c', borderRadius: '5px', transition: 'width 0.4s ease' }} />
+              </div>
+              <div style={{ fontSize: '14px', opacity: 0.8 }}>{uploadProgress}%</div>
+              <div style={{ fontSize: '12px', opacity: 0.6 }}>Keep this tab open during upload</div>
+            </>
+          ) : (
+            // Phase 2: upload done, server assembling — show same progress clients see
+            <>
+              <div style={{ fontSize: '18px', fontWeight: 500 }}>
+                {serverBufferingProgress < 100
+                  ? 'Buffering for viewers — playback starts soon'
+                  : 'Starting playback…'}
+              </div>
+              <div style={{ width: '300px', height: '10px', background: 'rgba(255,255,255,0.2)', borderRadius: '5px', overflow: 'hidden' }}>
+                <div style={{ width: `${serverBufferingProgress}%`, height: '100%', background: '#e74c3c', borderRadius: '5px', transition: 'width 0.4s ease' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', width: '300px', marginTop: '-8px', fontSize: '12px', opacity: 0.65 }}>
+                <span>{serverBufferingProgress}% buffered</span>
+                <span>playback starts at 100%</span>
+              </div>
+            </>
+          )}
         </div>
       )}
 
