@@ -246,16 +246,10 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
       // On HTTP: triggers a range request. On blob: instant.
     };
 
-    const onFallbackSync = ({ currentTime, isPlaying, uploadId }) => {
+    const onFallbackSync = ({ currentTime, isPlaying }) => {
+      // uploadId was previously sent here but caused a double-trigger race with
+      // the stream-ready replay. Video URL is now handled exclusively by stream-ready.
       if (isHost) return;
-      if (uploadId) {
-        // Late joiner — same flow as stream-ready. Always reset so we can retry.
-        streamFileType.current = null;
-        uploadIdRef.current = uploadId;
-        downloadingRef.current = false;
-        setServerVideoUrl(SERVER_URL + '/stream/' + uploadId);
-        setStreamTrigger(t => t + 1);
-      }
       // Sync playback position after video has a moment to load
       setTimeout(() => {
         const v = viewerVideoRef.current;
