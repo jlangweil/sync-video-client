@@ -486,7 +486,8 @@ function Room() {
   };
   
   // Handle video state change (play/pause/seek)
-  const handleVideoStateChange = (isPlaying, currentTime) => {
+  // videoDuration is optional — passed on seek so server can compute the byte offset
+  const handleVideoStateChange = (isPlaying, currentTime, videoDuration = null) => {
     if (socketRef.current && isHost) {
       // Send regular state update
       socketRef.current.emit('videoStateChange', {
@@ -496,7 +497,7 @@ function Room() {
           currentTime
         }
       });
-      
+
       // Track significant seek operations (more than 10 seconds)
       if (lastReportedTime.current !== null) {
         const seekDistance = Math.abs(currentTime - lastReportedTime.current);
@@ -504,11 +505,12 @@ function Room() {
           console.log(`Major seek detected: ${seekDistance.toFixed(2)}s`);
           socketRef.current.emit('videoSeekOperation', {
             roomId,
-            seekTime: currentTime
+            seekTime: currentTime,
+            videoDuration  // lets server compute byte offset for assembly check
           });
         }
       }
-      
+
       // Remember this time for future seek distance calculation
       lastReportedTime.current = currentTime;
     }

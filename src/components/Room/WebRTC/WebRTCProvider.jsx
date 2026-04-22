@@ -29,15 +29,25 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
   // Incremented on every stream-ready for viewers so the setup effect always re-runs,
   // even when serverVideoUrl doesn't change (e.g. after a failed previous attempt).
   const [streamTrigger,         setStreamTrigger]         = useState(0);
+  // True while host is waiting for server assembly to reach a seek position
+  const [isSeekBuffering,       setIsSeekBuffering]       = useState(false);
 
-  const hostVideoRef    = useRef(null);
-  const viewerVideoRef  = useRef(null);
-  const fileUrlRef      = useRef(null);
-  const uploadIdRef     = useRef(null);
-  const isStreamingRef  = useRef(false);
-  const blobUrlRef      = useRef(null);    // local blob URL after full download
-  const downloadingRef  = useRef(false);   // prevent duplicate downloads
-  const streamFileType  = useRef('video/mp4');
+  const hostVideoRef      = useRef(null);
+  const viewerVideoRef    = useRef(null);
+  const fileUrlRef        = useRef(null);
+  const uploadIdRef       = useRef(null);
+  const isStreamingRef    = useRef(false);
+  const blobUrlRef        = useRef(null);    // local blob URL after full download
+  const downloadingRef    = useRef(false);   // prevent duplicate downloads
+  const streamFileType    = useRef('video/mp4');
+  const streamFileSizeRef = useRef(0);       // file size from stream-ready; gating blob download
+  const downloadAbortRef  = useRef(null);    // AbortController for in-flight blob download
+
+  // Files larger than this skip the background blob download entirely.
+  // Accumulating a 4GB file in JS heap (as Uint8Array chunks then a Blob)
+  // doubles browser memory usage and OOMs the tab; HTTP range requests handle
+  // seeking well enough without the local blob.
+  const MAX_BLOB_DOWNLOAD_BYTES = 200 * 1024 * 1024; // 200 MB
 
   // Load host file URL from sessionStorage
   useEffect(() => {
@@ -104,6 +114,7 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
         // Reset any stale download state from a prior failed attempt so the
         // viewer setup effect always re-runs, even if serverVideoUrl is the same URL.
         downloadingRef.current = false;
+        streamFileSizeRef.current = fileSize || 0;
         setServerVideoUrl(SERVER_URL + streamUrl);
         // Bump the trigger so the viewer setup effect re-runs unconditionally.
         // React skips effects whose deps haven't changed, so if serverVideoUrl is
@@ -129,9 +140,6 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
   }, [socketReady, isHost]);
 
   // ─── Viewer setup: runs after <video> is in the DOM ───────────────────────
-  // serverVideoUrl changing to a truthy value means ViewerVideo just rendered
-  // the <video ref={viewerVideoRef}> element. By the time this effect fires,
-  // the DOM commit is done and viewerVideoRef.current is populated.
   useEffect(() => {
     if (isHost || !serverVideoUrl) return;
     const v = viewerVideoRef.current;
@@ -140,9 +148,15 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
       return;
     }
 
+    // Cancel any in-flight blob download from a previous stream attempt
+    if (downloadAbortRef.current) {
+      downloadAbortRef.current.abort();
+      downloadAbortRef.current = null;
+    }
+
     downloadingRef.current = true;
     setConnectionStatus('buffering');
-    setDownloadProgress(1);
+    setDownloadProgress(0);
 
     // Start HTTP playback immediately
     v.src = serverVideoUrl;
@@ -154,47 +168,73 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
       readyFired = true;
       clearTimeout(readyTimeout);
       setConnectionStatus('ready');
-      v.play().catch(() => addSystemMessage('Click video to start playback'));
       setIsStreaming(true);
       isStreamingRef.current = true;
+      // Attempt autoplay; if rejected (browser policy), add a persistent canplay
+      // listener so the video starts as soon as the user interacts or data arrives.
+      v.play().catch(() => {
+        const onCanPlayRetry = () => {
+          v.play().catch(() => {});
+          v.removeEventListener('canplay', onCanPlayRetry);
+        };
+        v.addEventListener('canplay', onCanPlayRetry);
+        addSystemMessage('Click the video to start playback');
+      });
     };
 
     const onError = () => {
       if (!readyFired) {
         readyFired = true;
         clearTimeout(readyTimeout);
-        downloadingRef.current = false; // allow retry on next stream-ready
+        downloadingRef.current = false;
         console.error('[viewer-setup] video element error — url:', serverVideoUrl);
         addSystemMessage('Video load error — waiting for next sync');
         setConnectionStatus('disconnected');
       }
     };
 
-    // canplay fires when the browser thinks it can play without stalling.
-    // loadeddata fires earlier (first frame decoded). Use either.
     v.addEventListener('canplay',    markReady, { once: true });
     v.addEventListener('loadeddata', markReady, { once: true });
     v.addEventListener('error',      onError,   { once: true });
 
-    // Hard timeout: if neither event fires in 12s, try to play anyway.
-    const readyTimeout = setTimeout(markReady, 12000);
+    // Hard timeout: if neither event fires in 15s, mark ready anyway.
+    // play() inside markReady will catch the case where no data is actually
+    // available yet — the persistent canplay listener above handles retry.
+    const readyTimeout = setTimeout(markReady, 15000);
 
-    // Download full file in background while video plays
-    downloadToBlob(serverVideoUrl, streamFileType.current, v);
+    // Background full-file download — only for small files.
+    // For large files (> MAX_BLOB_DOWNLOAD_BYTES), HTTP range requests via
+    // pipeGrowingFile handle seeking adequately without loading the whole
+    // file into JS heap (which OOMs the browser tab for feature-length movies).
+    const fileSize = streamFileSizeRef.current;
+    if (fileSize === 0 || fileSize <= MAX_BLOB_DOWNLOAD_BYTES) {
+      const abortCtrl = new AbortController();
+      downloadAbortRef.current = abortCtrl;
+      downloadToBlob(serverVideoUrl, streamFileType.current, v, abortCtrl.signal);
+    } else {
+      console.log(`[viewer] file ${(fileSize / 1024 / 1024).toFixed(0)} MB — skipping blob download, using HTTP streaming`);
+      // Don't show the "Buffering locally" progress bar for large files
+      setDownloadProgress(0);
+    }
 
     return () => {
       clearTimeout(readyTimeout);
       v.removeEventListener('canplay',    markReady);
       v.removeEventListener('loadeddata', markReady);
       v.removeEventListener('error',      onError);
+      if (downloadAbortRef.current) {
+        downloadAbortRef.current.abort();
+        downloadAbortRef.current = null;
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHost, serverVideoUrl, streamTrigger]);
 
   // ─── Background full-file download → swap to local blob on completion ─────
-  const downloadToBlob = async (httpUrl, fileType, videoEl) => {
+  // Only runs for files ≤ MAX_BLOB_DOWNLOAD_BYTES. Abortable via signal.
+  const downloadToBlob = async (httpUrl, fileType, videoEl, signal) => {
     try {
-      const response = await fetch(httpUrl);
+      const response = await fetch(httpUrl, { signal });
       if (!response.ok) throw new Error('HTTP ' + response.status);
 
       const contentLength = parseInt(response.headers.get('Content-Length') || '0', 10);
@@ -205,12 +245,15 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (signal?.aborted) { reader.cancel(); return; }
         chunks.push(value);
         received += value.length;
         if (contentLength > 0) {
           setDownloadProgress(Math.min(99, Math.round((received / contentLength) * 100)));
         }
       }
+
+      if (signal?.aborted) return;
 
       // Build local blob and swap video source at the current playback position
       const blob = new Blob(chunks, { type: fileType || 'video/mp4' });
@@ -219,7 +262,7 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
       blobUrlRef.current = blobUrl;
 
       const v = videoEl || viewerVideoRef.current;
-      if (v) {
+      if (v && !signal?.aborted) {
         const currentTime = v.currentTime;
         const wasPaused   = v.paused;
         v.src = blobUrl;
@@ -231,8 +274,8 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
       setDownloadProgress(100);
 
     } catch (err) {
+      if (err.name === 'AbortError') return; // normal cancellation — no log needed
       console.error('Background download failed:', err);
-      // HTTP playback is still running — don't show an error to the user
       downloadingRef.current = false;
     }
   };
@@ -268,14 +311,33 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
       }, 1500);
     };
 
-    socketRef.current.on('videoStateUpdate',    onStateUpdate);
-    socketRef.current.on('videoSeekOperation',  onSeek);
-    socketRef.current.on('fallback-sync-state', onFallbackSync);
+    // Host: server says the seek position is not yet assembled — pause and show buffering UI
+    const onSeekNeedsBuffering = () => {
+      if (!isHost) return;
+      setIsSeekBuffering(true);
+      if (hostVideoRef.current) hostVideoRef.current.pause();
+    };
+
+    // Host + viewers: assembly has reached the seek position — resume playback
+    const onSeekBuffered = () => {
+      setIsSeekBuffering(false);
+      if (isHost && hostVideoRef.current) {
+        hostVideoRef.current.play().catch(() => {});
+      }
+    };
+
+    socketRef.current.on('videoStateUpdate',      onStateUpdate);
+    socketRef.current.on('videoSeekOperation',    onSeek);
+    socketRef.current.on('fallback-sync-state',   onFallbackSync);
+    socketRef.current.on('seek-needs-buffering',  onSeekNeedsBuffering);
+    socketRef.current.on('seek-buffered',         onSeekBuffered);
     return () => {
       if (!socketRef.current) return;
-      socketRef.current.off('videoStateUpdate',    onStateUpdate);
-      socketRef.current.off('videoSeekOperation',  onSeek);
-      socketRef.current.off('fallback-sync-state', onFallbackSync);
+      socketRef.current.off('videoStateUpdate',      onStateUpdate);
+      socketRef.current.off('videoSeekOperation',    onSeek);
+      socketRef.current.off('fallback-sync-state',   onFallbackSync);
+      socketRef.current.off('seek-needs-buffering',  onSeekNeedsBuffering);
+      socketRef.current.off('seek-buffered',         onSeekBuffered);
     };
   }, [socketReady, isHost]);
 
@@ -357,6 +419,11 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
 
   const stopStreaming = () => {
     if (!isStreaming) return;
+    // Cancel any in-flight blob download before clearing state
+    if (downloadAbortRef.current) {
+      downloadAbortRef.current.abort();
+      downloadAbortRef.current = null;
+    }
     if (hostVideoRef.current)  { hostVideoRef.current.pause(); hostVideoRef.current.src = ''; hostVideoRef.current.load(); }
     if (viewerVideoRef.current) { viewerVideoRef.current.pause(); viewerVideoRef.current.src = ''; viewerVideoRef.current.load(); }
     if (blobUrlRef.current)    { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null; }
@@ -372,6 +439,7 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
     setDownloadProgress(0);
     setServerBufferingProgress(0);
     setConnectionStatus('disconnected');
+    setIsSeekBuffering(false);
     downloadingRef.current = false;
     addSystemMessage('Stopped streaming.');
   };
@@ -386,6 +454,7 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
   const contextValue = {
     isStreaming, streamError, streamLoading,
     connectionStatus, uploadProgress, downloadProgress, serverBufferingProgress, serverVideoUrl,
+    isSeekBuffering,
     fileUrlRef, hostVideoRef, viewerVideoRef,
     startStreaming, stopStreaming, handleSeekEvent, debugWebRTCConnections,
     setStreamError, setStreamLoading, setConnectionStatus

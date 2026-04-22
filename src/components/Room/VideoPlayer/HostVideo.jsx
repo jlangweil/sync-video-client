@@ -18,6 +18,7 @@ function HostVideo({
     streamLoading,
     uploadProgress,
     serverBufferingProgress,
+    isSeekBuffering,
     setStreamError,
     fileUrlRef,
   } = useWebRTC();
@@ -53,7 +54,9 @@ function HostVideo({
 
   const handleSeeked = () => {
     if (!processingRemoteUpdate && hostVideoRef.current) {
-      handleVideoStateChange(!hostVideoRef.current.paused, hostVideoRef.current.currentTime);
+      const v = hostVideoRef.current;
+      // Pass duration so Room.jsx can include it in videoSeekOperation for server assembly check
+      handleVideoStateChange(!v.paused, v.currentTime, v.duration || null);
       setSeekingInfo(null);
     }
   };
@@ -188,8 +191,31 @@ function HostVideo({
         </div>
       )}
 
+      {/* Seek-triggered rebuffering: server is assembling to reach the new position */}
+      {isSeekBuffering && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'rgba(0,0,0,0.75)',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          zIndex: 30, color: 'white', gap: '14px'
+        }}>
+          <div style={{ fontSize: '18px', fontWeight: 500 }}>Buffering new position for clients…</div>
+          <div style={{ fontSize: '13px', opacity: 0.65 }}>
+            Server is assembling video at this point — playback will resume automatically
+          </div>
+          <div style={{
+            width: '36px', height: '36px',
+            border: '3px solid rgba(255,255,255,0.2)',
+            borderTopColor: '#e74c3c',
+            borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite'
+          }} />
+        </div>
+      )}
+
       {/* Seeking indicator */}
-      {seekingInfo && (
+      {seekingInfo && !isSeekBuffering && (
         <div className="seeking-overlay">
           <div className="seeking-message">
             <div className="seeking-spinner"></div>

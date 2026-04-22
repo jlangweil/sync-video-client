@@ -20,6 +20,8 @@ function ViewerVideo({
 
   const [reconnecting, setReconnecting] = useState(false);
   const [lastConnectionChange, setLastConnectionChange] = useState(Date.now());
+  // True when the video element is waiting for data (seek to unassembled territory, etc.)
+  const [videoStalled, setVideoStalled] = useState(false);
 
   useEffect(() => {
     setLastConnectionChange(Date.now());
@@ -30,6 +32,25 @@ function ViewerVideo({
       setReconnecting(false);
     }
   }, [connectionStatus]);
+
+  // Detect mid-playback stalls (seek to unassembled position, network hiccup, etc.)
+  useEffect(() => {
+    const v = viewerVideoRef.current;
+    if (!v || !serverVideoUrl) return;
+
+    const onWaiting = () => setVideoStalled(true);
+    const onPlaying = () => setVideoStalled(false);
+    const onCanPlay = () => setVideoStalled(false);
+
+    v.addEventListener('waiting', onWaiting);
+    v.addEventListener('playing', onPlaying);
+    v.addEventListener('canplay', onCanPlay);
+    return () => {
+      v.removeEventListener('waiting', onWaiting);
+      v.removeEventListener('playing', onPlaying);
+      v.removeEventListener('canplay', onCanPlay);
+    };
+  }, [serverVideoUrl, viewerVideoRef]);
 
   const getTimeSinceChange = () => {
     const s = Math.floor((Date.now() - lastConnectionChange) / 1000);
@@ -130,6 +151,34 @@ function ViewerVideo({
           {/* Brief "fully buffered" confirmation */}
           {downloadProgress === 100 && (
             <DownloadCompleteToast />
+          )}
+
+          {/* Mid-playback rebuffering overlay (seek to unassembled position) */}
+          {videoStalled && connectionStatus === 'ready' && (
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'rgba(0,0,0,0.72)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 30,
+              color: 'white',
+              gap: '12px'
+            }}>
+              <div style={{ fontSize: '17px', fontWeight: 500 }}>Buffering new position...</div>
+              <div style={{ fontSize: '13px', opacity: 0.65 }}>
+                Waiting for server to assemble video at this point
+              </div>
+              <div style={{
+                width: '32px', height: '32px', marginTop: '4px',
+                border: '3px solid rgba(255,255,255,0.2)',
+                borderTopColor: '#e74c3c',
+                borderRadius: '50%',
+                animation: 'spin 0.8s linear infinite'
+              }} />
+            </div>
           )}
 
           {/* Status dot (top-left, subtle) */}
