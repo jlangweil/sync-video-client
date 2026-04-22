@@ -71,7 +71,7 @@ export const WebRTCProvider = ({ children, socketRef, socketReady, roomId, isHos
       setServerBufferingProgress(progress);
     };
 
-    const onStreamReady = ({ uploadId, streamUrl, fileType }) => {
+    const onStreamReady = ({ uploadId, streamUrl, fileType, fileSize }) => {
       uploadIdRef.current = uploadId;
       streamFileType.current = fileType || 'video/mp4';
       setStreamLoading(false);
